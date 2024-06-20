@@ -1,0 +1,6 @@
+[flake8]
+ignore =
+    # Fix disagreement between black and flake8 on whitespaces before ":"
+    # https://black.readthedocs.io/en/stable/faq.html#why-are-flake8-s-e203-and-w503-violated
+    E203,
+    W503
