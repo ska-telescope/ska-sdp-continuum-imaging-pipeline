@@ -1,0 +1,26 @@
+*.DS_Store
+.vscode/
+.venv/
+
+# Build directories
+/release/
+/debug/
+/build/
+/dist/
+__pycache__/
+*.egg-info/
+.pytest_cache
+
+# Documentation build directories
+/docs/doxygen/
+/docs/build/
+
+# Backup files
+*~
+
+# Code coverage
+.coverage
+
+# Local experiments and personal notes
+scratch/
+TODO.md
