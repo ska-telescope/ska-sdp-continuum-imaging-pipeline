@@ -27,5 +27,10 @@ pylint-junit = "^0.3.2"
 pytest = "^7.1.1"
 pytest-cov = "^3.0.0"
 
+# Install with `poetry install --with docs`
+[tool.poetry.group.docs.dependencies]
+sphinx = "^7.0.0"
+sphinx-rtd-theme = "^1.0.0"
+
 [tool.black]
 line-length = 79
