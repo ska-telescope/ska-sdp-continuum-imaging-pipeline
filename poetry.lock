@@ -330,6 +330,45 @@ files = [
 ]
 
 [[package]]
+name = "ducc0"
+version = "0.34.0"
+description = "Distinctly useful code collection: contains efficient algorithms for Fast Fourier (and related) transforms, spherical harmonic transforms involving very general spherical grids, gridding/degridding tools for radio interferometry, 4pi spherical convolution operators and much more."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "ducc0-0.34.0-cp310-cp310-macosx_10_14_x86_64.whl", hash = "sha256:a475a558dc4ebbde0767944d6913ad17e5c0944c62800a77b84edf590b4df88f"},
+    {file = "ducc0-0.34.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:08d9c9e9ced82763ef6e0b4167bb50bdae26515ee6c9a86604f808fe73b5aa1c"},
+    {file = "ducc0-0.34.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:622a8653264fca45fe97eabf96e237e8ff50197ea0a5e75bd6a4cd2d3724c890"},
+    {file = "ducc0-0.34.0-cp310-cp310-win_amd64.whl", hash = "sha256:9e9bf717c1e3d191d274fb1d4813e3508b3b22a13b89504ed4bbc8e493586809"},
+    {file = "ducc0-0.34.0-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:930e3580cf9c5ec6d37e7d042485fa7b076ab7df1a54d4b3bc04d4a1767a5396"},
+    {file = "ducc0-0.34.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c85c75862d45e654aac57f6073d1cc8de3054c994f62f0e57cad82ce2c51d46f"},
+    {file = "ducc0-0.34.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:72349999a5369b2b4ea0da650b2516185b33f9d4f1525a29f5bc36406423daf8"},
+    {file = "ducc0-0.34.0-cp311-cp311-win_amd64.whl", hash = "sha256:7149ee97be66edfc3650132381af7b79ca9eb0595ad166770cc8c758fa5fb631"},
+    {file = "ducc0-0.34.0-cp312-cp312-macosx_10_14_x86_64.whl", hash = "sha256:2a314748afbbae9525c918f01ca88d9bd892708248a4d6f84d3a233e333adb44"},
+    {file = "ducc0-0.34.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:a3fa55c9a650f2f84faf0440b93d7d799395a252f7d9a908027cb34fe56be65a"},
+    {file = "ducc0-0.34.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:092bb7aded833a29767790e674b731ff663a3517a1a1b0e79991aaf7630db4cc"},
+    {file = "ducc0-0.34.0-cp312-cp312-win_amd64.whl", hash = "sha256:0d5ecb81228c5bd6439e18c90230e2dd83d0a1b7d2f157644735f095f667c8fd"},
+    {file = "ducc0-0.34.0-cp38-cp38-macosx_10_14_x86_64.whl", hash = "sha256:3ac70a182a9d5a65f9a56cb2c8977ba20eac083bf64f1304691d06c605d8a84f"},
+    {file = "ducc0-0.34.0-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:87a3f0e63b81293cdca66e01fdd8509e4992dead45660604d28e11ed32ca893f"},
+    {file = "ducc0-0.34.0-cp38-cp38-manylinux_2_28_x86_64.whl", hash = "sha256:3cfcf0b2a8866e608cf9f78420899d9bc70dce0c61889b51f174d1eb3968a2eb"},
+    {file = "ducc0-0.34.0-cp38-cp38-win_amd64.whl", hash = "sha256:a7681f5eca3fe2e9861d58b2e06f4580427dfc400aec060c44580096b3d7a666"},
+    {file = "ducc0-0.34.0-cp39-cp39-macosx_10_14_x86_64.whl", hash = "sha256:cda14d086ab13b06685c1253db143b7dcc0a9aed03ec406c5fd8733399f9d542"},
+    {file = "ducc0-0.34.0-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:64b0a8ce163fd114fee415ec7df83bdc67dd29be9f74550c09c4c1ad9cad38be"},
+    {file = "ducc0-0.34.0-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:f3b81da3f12f53732b56cf9c1d3c5599386d5234ca4978d8b57dd6c0257aec01"},
+    {file = "ducc0-0.34.0-cp39-cp39-win_amd64.whl", hash = "sha256:9e647898497d1003d64d464b3882200da4cd4c0f3fa69997ca8b83c1cff9f380"},
+    {file = "ducc0-0.34.0-pp310-pypy310_pp73-macosx_10_14_x86_64.whl", hash = "sha256:b66d4cc6415d2079bfca873a5972a341c5d07deccc11b797541691e2be045d10"},
+    {file = "ducc0-0.34.0-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:9e897b6cca6e0f73aac3db44fa17298adbc1525df000ac872c6e7438ffd0fb2b"},
+    {file = "ducc0-0.34.0-pp38-pypy38_pp73-macosx_10_14_x86_64.whl", hash = "sha256:293d66fcfa42da2f000fe837c9a2aa919fc4db7251b0bad47199d55c9077b480"},
+    {file = "ducc0-0.34.0-pp38-pypy38_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:93dfddb622a8484042061c357c05a6fea301601b8775e000027d3719604a069e"},
+    {file = "ducc0-0.34.0-pp39-pypy39_pp73-macosx_10_14_x86_64.whl", hash = "sha256:faaacc70245a2553f9decaf5819d5ae25f9d78f3583aba864c5085cb6f3067b0"},
+    {file = "ducc0-0.34.0-pp39-pypy39_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:3657ebac2093ccc3c80390208406fc168513a88bd0c9c031a5afb1b899d72cd9"},
+    {file = "ducc0-0.34.0.tar.gz", hash = "sha256:ddd47d9bdf0d5487c9cbcf8bdaf3b0b00f04bfba77f09b9618ac6599d5a8035c"},
+]
+
+[package.dependencies]
+numpy = ">=1.17.0"
+
+[[package]]
 name = "exceptiongroup"
 version = "1.2.1"
 description = "Backport of PEP 654 (exception groups)"
@@ -1161,4 +1200,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10,<3.13"
-content-hash = "3abc17b8dacfb91eff18e2441b76d7c70239172384425daff64e7bb3745f0751"
+content-hash = "e03e1ab9c58099402afc53931a366d58fec763a22e4ea469da89e9bbc137695e"

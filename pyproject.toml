@@ -18,6 +18,7 @@ requires = ["poetry-core>=1.0.0"]
 python = "^3.10,<3.13"
 numpy = "^1.23"
 python-casacore = "^3.5.2"
+ducc0 = "^0.34"
 
 [tool.poetry.dev-dependencies]
 black = "^22.1.0"
