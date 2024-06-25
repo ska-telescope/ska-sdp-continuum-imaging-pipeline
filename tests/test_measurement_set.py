@@ -46,3 +46,12 @@ def test_channel_frequencies(measurement_set: MeasurementSet):
     Self-explanatory.
     """
     assert np.array_equal(measurement_set.channel_frequencies(), [950.0e6])
+
+
+def test_reading_uvw_and_visibilities(measurement_set: MeasurementSet):
+    """
+    Check that reading uvw and visibilities does not raise any error.
+    """
+    measurement_set.uvw()
+    measurement_set.visibilities()
+    measurement_set.stokes_i_visibilities()
