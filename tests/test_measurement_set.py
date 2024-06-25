@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Iterator
 from zipfile import ZipFile
 
+import numpy as np
 import pytest
 
 from skip import MeasurementSet
@@ -22,7 +23,7 @@ def fixture_measurement_set() -> Iterator[Path]:
         ZipFile(path, "r") as zipped_ms,
     ):
         zipped_ms.extractall(tempdir)
-        yield MeasurementSet(tempdir)
+        yield MeasurementSet(Path(tempdir) / "aa2_mid_nano.ms")
 
 
 def test_measurement_set_path_is_absolute(measurement_set: MeasurementSet):
@@ -38,3 +39,10 @@ def test_filenotfound_raised_on_nonexistent_path():
     """
     with pytest.raises(FileNotFoundError):
         MeasurementSet("definitely/does/not/exists.ms")
+
+
+def test_channel_frequencies(measurement_set: MeasurementSet):
+    """
+    Self-explanatory.
+    """
+    assert np.array_equal(measurement_set.channel_frequencies(), [950.0e6])
