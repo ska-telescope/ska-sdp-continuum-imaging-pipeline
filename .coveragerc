@@ -1,0 +1,9 @@
+[run]
+omit =
+    tests/*
+    src/*/_version.py
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.:
+    def main()
