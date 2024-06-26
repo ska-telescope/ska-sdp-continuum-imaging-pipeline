@@ -92,6 +92,12 @@ class MeasurementSet:
         """
         return self._getcol("MAIN", "DATA")
 
+    def flags(self) -> NDArray:
+        """
+        Flags as a boolean numpy array with shape (nrows, nchan, npol).
+        """
+        return self._getcol("MAIN", "FLAG")
+
     def stokes_i_visibilities(self) -> NDArray:
         """
         Stokes I visibilities as a numpy array with shape (nrows, nchan)
@@ -99,3 +105,12 @@ class MeasurementSet:
         vis = self.visibilities()
         # NOTE: assuming XX, XY, YX, YY correlations
         return 0.5 * (vis[..., 0] + vis[..., 3])
+
+    def stokes_i_flags(self) -> NDArray:
+        """
+        Appropriate flags for Stokes I imaging. A Stokes I visibility is
+        flagged if any of the correlations that contribute to its calculation
+        is flagged.
+        """
+        flags = self.flags()
+        return flags[..., (0, 3)].max(axis=-1)

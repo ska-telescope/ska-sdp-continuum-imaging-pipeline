@@ -19,6 +19,7 @@ def invert_measurement_set(
     Invert the given MeasurementSet, returning a dirty image.
     """
     weights = None
+    mask = np.logical_not(mset.stokes_i_flags()).astype("uint8")
     pixel_size_lm = np.sin(np.radians(pixel_size_asec / 3600.0))
     return ms2dirty(
         mset.uvw(),
@@ -32,4 +33,5 @@ def invert_measurement_set(
         epsilon=1e-4,
         do_wstacking=True,
         nthreads=nthreads,
+        mask=mask,
     )

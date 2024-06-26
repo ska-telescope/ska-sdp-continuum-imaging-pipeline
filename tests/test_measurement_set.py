@@ -33,3 +33,13 @@ def test_reading_uvw_and_visibilities(measurement_set: MeasurementSet):
     measurement_set.uvw()
     measurement_set.visibilities()
     measurement_set.stokes_i_visibilities()
+
+
+def test_reading_flags(measurement_set: MeasurementSet):
+    """
+    Check that the flags of the test measurement set have the expected shape
+    and values.
+    """
+    flags = measurement_set.flags()
+    assert flags.shape == (453840, 1, 4)
+    assert np.all(np.equal(flags, False))
