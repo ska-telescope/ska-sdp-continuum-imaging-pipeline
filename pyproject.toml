@@ -12,6 +12,9 @@ version = "0.1.0"
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core>=1.0.0"]
 
+[tool.poetry.scripts]
+skip = "skip.apps.pipeline_app:main"
+
 [tool.poetry.dependencies]
 # Must specify an upper bound for Python version, otherwise some dependencies
 # cannot technically meet the requirement.
