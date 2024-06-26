@@ -1,6 +1,7 @@
 import os
+import warnings
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from casacore.tables import table
 from numpy.typing import NDArray
@@ -98,6 +99,17 @@ class MeasurementSet:
         """
         return self._getcol("MAIN", "FLAG")
 
+    def weights(self) -> Optional[NDArray]:
+        """
+        Correlator weights as a numpy array with shape (nrows, nchan, npol).
+        This is the contents of the WEIGHT_SPECTRUM column. If the column does
+        not exist, return None.
+        """
+        try:
+            return self._getcol("MAIN", "WEIGHT_SPECTRUM")
+        except RuntimeError:
+            return None
+
     def stokes_i_visibilities(self) -> NDArray:
         """
         Stokes I visibilities as a numpy array with shape (nrows, nchan)
@@ -114,3 +126,25 @@ class MeasurementSet:
         """
         flags = self.flags()
         return flags[..., (0, 3)].max(axis=-1)
+
+    def stokes_i_weights(self) -> Optional[NDArray]:
+        """
+        Appropriate weights for Stokes I visibilities as a numpy array with
+        shape (nrows, nchan, npol). If the WEIGHT_SPECTRUM column does not
+        exist, returns None.
+        """
+        weights = self.weights()
+        if weights is None:
+            return None
+
+        with warnings.catch_warnings():
+            # Ignore division by zero warning, it all works out below even
+            # for zero weights.
+            warnings.simplefilter("ignore")
+
+            # Stokes I visibilities = 1/2 * (vis_xx + vis_yy).
+            # Weights are the inverse of variances, and variances add linearly,
+            # hence this formula.
+            wxx = weights[..., 0]
+            wyy = weights[..., 3]
+            return 4.0 / (1.0 / wxx + 1.0 / wyy)

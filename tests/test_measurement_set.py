@@ -43,3 +43,11 @@ def test_reading_flags(measurement_set: MeasurementSet):
     flags = measurement_set.flags()
     assert flags.shape == (453840, 1, 4)
     assert np.all(np.equal(flags, False))
+
+
+def test_reading_weights(measurement_set: MeasurementSet):
+    """
+    Check that the weights of the test measurement set have the expected shape
+    and values.
+    """
+    assert measurement_set.weights() is None
