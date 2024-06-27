@@ -18,13 +18,20 @@ def invert_measurement_set(
     """
     Invert the given MeasurementSet, returning a dirty image.
     """
-    mask = np.logical_not(mset.stokes_i_flags()).astype("uint8")
     pixel_size_lm = np.sin(np.radians(pixel_size_asec / 3600.0))
-    return ms2dirty(
+
+    mask = np.logical_not(mset.stokes_i_flags())
+    weights = mset.stokes_i_weights()
+    effective_weights = (
+        weights * mask if weights is not None else mask.astype("float32")
+    )
+    normfactor = 1.0 / effective_weights.sum()
+
+    return normfactor * ms2dirty(
         mset.uvw(),
         mset.channel_frequencies(),
         mset.stokes_i_visibilities(),
-        mset.stokes_i_weights(),
+        effective_weights,
         num_pixels,
         num_pixels,
         pixel_size_lm,
@@ -32,5 +39,5 @@ def invert_measurement_set(
         epsilon=1e-4,
         do_wstacking=True,
         nthreads=nthreads,
-        mask=mask,
+        mask=None,  # already accounted for in effective_weights
     )
