@@ -3,7 +3,7 @@ authors = ["The SKA SDP Continuum Imaging Pipeline Authors"]
 description = "SKA SDP Continuum Imaging Pipeline"
 documentation = "https://developer.skao.int/projects/ska-sdp-continuum-imaging-pipeline"
 license = "BSD-3-Clause"
-name = "skip"
+name = "ska_sdp_cip"
 readme = "README.md"
 repository = "https://gitlab.com/ska-telescope/sdp/ska-sdp-continuum-imaging-pipeline"
 version = "0.1.0"
@@ -13,7 +13,7 @@ build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core>=1.0.0"]
 
 [tool.poetry.scripts]
-skip = "skip.apps.pipeline_app:main"
+ska-sdp-cip = "ska_sdp_cip.apps.pipeline_app:main"
 
 [tool.poetry.dependencies]
 # Must specify an upper bound for Python version, otherwise some dependencies

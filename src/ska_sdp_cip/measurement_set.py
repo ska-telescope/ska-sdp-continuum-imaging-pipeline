@@ -51,6 +51,12 @@ class MeasurementSet:
                     "Polarization channels must be XX, XY, YX, YY"
                 )
 
+        with self._open_table_readonly("FIELD") as tbl:
+            if not tbl.nrows() == 1:
+                raise UnsupportedMeasurementSetLayout(
+                    "Multiple fields are not supported"
+                )
+
     @property
     def path(self) -> Path:
         """

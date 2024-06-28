@@ -1,6 +1,6 @@
 import numpy as np
 
-from skip import MeasurementSet, invert_measurement_set
+from ska_sdp_cip import MeasurementSet, invert_measurement_set
 
 
 def test_invert_measurement_set(measurement_set: MeasurementSet):

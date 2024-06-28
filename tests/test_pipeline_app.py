@@ -4,15 +4,15 @@ from pathlib import Path
 
 import numpy as np
 
-from skip import MeasurementSet
-from skip.apps.pipeline_app import run_program
+from ska_sdp_cip import MeasurementSet
+from ska_sdp_cip.apps.pipeline_app import run_program
 
 
 def test_entrypoint_exists():
     """
     Self-explanatory.
     """
-    subprocess.check_call(["skip", "--help"])
+    subprocess.check_call(["ska-sdp-cip", "--help"])
 
 
 def test_pipeline_app(measurement_set: MeasurementSet):

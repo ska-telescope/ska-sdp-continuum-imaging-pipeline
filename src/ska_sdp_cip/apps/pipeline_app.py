@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from skip import MeasurementSet, __version__, invert_measurement_set
+from ska_sdp_cip import MeasurementSet, __version__, invert_measurement_set
 
 
 def get_parser() -> argparse.ArgumentParser:

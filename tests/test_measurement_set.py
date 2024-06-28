@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from skip import MeasurementSet
+from ska_sdp_cip import MeasurementSet
 
 
 def test_measurement_set_path_is_absolute(measurement_set: MeasurementSet):

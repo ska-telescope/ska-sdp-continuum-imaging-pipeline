@@ -5,7 +5,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from skip import MeasurementSet
+from ska_sdp_cip import MeasurementSet
 
 
 @pytest.fixture(scope="module")
