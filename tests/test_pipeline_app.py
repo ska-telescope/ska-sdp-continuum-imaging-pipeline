@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ska_sdp_cip import MeasurementSet
+from ska_sdp_cip import MeasurementSetReader
 from ska_sdp_cip.apps.pipeline_app import run_program
 
 
@@ -15,7 +15,7 @@ def test_entrypoint_exists():
     subprocess.check_call(["ska-sdp-cip", "--help"])
 
 
-def test_pipeline_app(measurement_set: MeasurementSet):
+def test_pipeline_app(ms_reader: MeasurementSetReader):
     """
     Run the pipeline app on the test measurement set.
     """
@@ -29,7 +29,7 @@ def test_pipeline_app(measurement_set: MeasurementSet):
             str(num_pixels),
             "-p",
             str(pixel_size_asec),
-            str(measurement_set.path),
+            str(ms_reader.path),
             str(image_path),
         ]
         run_program(cli_args)

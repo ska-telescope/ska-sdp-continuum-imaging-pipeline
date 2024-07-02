@@ -4,7 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from ska_sdp_cip import MeasurementSet, __version__, invert_measurement_set
+from ska_sdp_cip import (
+    MeasurementSetReader,
+    __version__,
+    invert_measurement_set,
+)
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -46,7 +50,7 @@ def run_program(cli_args: list[str]) -> None:
     Run the app. This is the function called by the tests.
     """
     args = get_parser().parse_args(cli_args)
-    mset = MeasurementSet(args.measurement_set)
+    mset = MeasurementSetReader(args.measurement_set)
     img = invert_measurement_set(
         mset, num_pixels=args.num_pixels, pixel_size_asec=args.pixel_size
     )

@@ -1,3 +1,3 @@
-from fixtures.measurement_set import measurement_set
+from fixtures.measurement_set import ms_reader
 
-__all__ = ["measurement_set"]
+__all__ = ["ms_reader"]
