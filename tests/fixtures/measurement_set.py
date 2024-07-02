@@ -5,13 +5,13 @@ from zipfile import ZipFile
 
 import pytest
 
-from ska_sdp_cip import MeasurementSet
+from ska_sdp_cip import MeasurementSetReader
 
 
 @pytest.fixture(scope="module")
-def measurement_set() -> Iterator[MeasurementSet]:
+def ms_reader() -> Iterator[MeasurementSetReader]:
     """
-    The unzipped test dataset as a MeasurementSet object.
+    The unzipped test dataset as a MeasurementSetReader object.
     """
     path = Path(__file__).parent / ".." / "data" / "mkt_ecdfs25_nano.zip"
     path = path.resolve()
@@ -21,4 +21,4 @@ def measurement_set() -> Iterator[MeasurementSet]:
         ZipFile(path, "r") as zipped_ms,
     ):
         zipped_ms.extractall(tempdir)
-        yield MeasurementSet(Path(tempdir) / "mkt_ecdfs25_nano.ms")
+        yield MeasurementSetReader(Path(tempdir) / "mkt_ecdfs25_nano.ms")
