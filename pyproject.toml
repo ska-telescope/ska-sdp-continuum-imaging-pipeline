@@ -18,20 +18,23 @@ ska-sdp-cip = "ska_sdp_cip.apps.pipeline_app:main"
 [tool.poetry.dependencies]
 # Must specify an upper bound for Python version, otherwise some dependencies
 # cannot technically meet the requirement.
-python = "^3.10,<3.13"
-numpy = "^1.23"
-python-casacore = "^3.5.2"
+dask = "^2023.9.3"
+distributed = "^2023.9.3"
 ducc0 = "^0.34"
+numpy = "^1.23"
+python = "^3.10,<3.13"
+python-casacore = "^3.5.2"
 
 [tool.poetry.dev-dependencies]
-black = "^22.1.0"
-build = "^0.7.0"
-flake8 = "^4.0.1"
-isort = "^5.10.1"
-pylint = "^2.12.2"
-pylint-junit = "^0.3.2"
-pytest = "^7.1.1"
-pytest-cov = "^3.0.0"
+black = "^22.1.0" 
+bokeh = "^2.4.2,!=3.0" # dask dashboard
+build = "^0.7.0" 
+flake8 = "^4.0.1" 
+isort = "^5.10.1" 
+pylint = "^2.12.2" 
+pylint-junit = "^0.3.2" 
+pytest = "^7.1.1" 
+pytest-cov = "^3.0.0" 
 
 # Install with `poetry install --with docs`
 [tool.poetry.group.docs.dependencies]
