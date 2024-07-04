@@ -4,7 +4,7 @@ import functools
 import os
 import warnings
 from pathlib import Path
-from typing import Iterator, Optional, Union
+from typing import Iterator, Union
 
 from casacore.tables import table
 from numpy.typing import NDArray
@@ -309,22 +309,38 @@ class MeasurementSetReader:
                 nrow=self.num_data_rows,
             )
 
-    def weights(self) -> Optional[NDArray]:
+    def weights(self) -> NDArray:
         """
         Correlator weights as a numpy array with shape (nrows, nchan, npol).
         This is the contents of the WEIGHT_SPECTRUM column. If the column does
-        not exist, return None.
+        not exist, return the contents of the WEIGHT column repeated along the
+        frequency dimension.
         """
-        # TODO: fall back onto WEIGHT column if WEIGHT_SPECTRUM does not exist
-        with open_table_readonly(self.path, "MAIN") as tbl:
-            # NOTE: assuming 4 polarisations
-            return tbl.getcolslice(
-                "WEIGHT_SPECTRUM",
-                blc=(self.channel_start, 0),
-                trc=(self.channel_end - 1, 3),
-                startrow=self.row_start,
-                nrow=self.num_data_rows,
-            )
+        try:
+            with open_table_readonly(self.path, "MAIN") as tbl:
+                # NOTE: assuming 4 polarisations
+                return tbl.getcolslice(
+                    "WEIGHT_SPECTRUM",
+                    blc=(self.channel_start, 0),
+                    trc=(self.channel_end - 1, 3),
+                    startrow=self.row_start,
+                    nrow=self.num_data_rows,
+                )
+
+        # WEIGHT_SPECTRUM column does not exist: use WEIGHT column.
+        # It has shape (nrows, ncol), we repeat it to (nrows, nchan, npol)
+        except RuntimeError:
+            with open_table_readonly(self.path, "MAIN") as tbl:
+                data: NDArray = tbl.getcolslice(
+                    "WEIGHT",
+                    blc=0,
+                    trc=3,
+                    startrow=self.row_start,
+                    nrow=self.num_data_rows,
+                )
+                nrow, npol = data.shape
+                data = data.reshape(nrow, 1, npol)
+                return data.repeat(self.num_channels, axis=1)
 
     def stokes_i_visibilities(self) -> NDArray:
         """
@@ -343,16 +359,12 @@ class MeasurementSetReader:
         flags = self.flags()
         return flags[..., (0, 3)].max(axis=-1)
 
-    def stokes_i_weights(self) -> Optional[NDArray]:
+    def stokes_i_weights(self) -> NDArray:
         """
         Appropriate weights for Stokes I visibilities as a numpy array with
-        shape (nrows, nchan, npol). If the WEIGHT_SPECTRUM column does not
-        exist, returns None.
+        shape (nrows, nchan, npol).
         """
         weights = self.weights()
-        if weights is None:
-            return None
-
         with warnings.catch_warnings():
             # Ignore division by zero warning, it all works out below even
             # for zero weights.

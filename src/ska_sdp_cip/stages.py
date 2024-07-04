@@ -22,9 +22,7 @@ def invert_measurement_set(
 
     mask = np.logical_not(ms_reader.stokes_i_flags())
     weights = ms_reader.stokes_i_weights()
-    effective_weights = (
-        weights * mask if weights is not None else mask.astype("float32")
-    )
+    effective_weights = weights * mask
     normfactor = 1.0 / effective_weights.sum()
 
     return normfactor * ms2dirty(
