@@ -32,7 +32,7 @@ def open_table_readonly(
     return table(table_spec, readonly=True, ack=False)
 
 
-def getcol(
+def get_column_data(
     mspath: Union[str, os.PathLike], table_name: str, column_name: str
 ) -> NDArray:
     """
@@ -43,7 +43,7 @@ def getcol(
 
 
 @functools.lru_cache()
-def getnrows(mspath: Union[str, os.PathLike], table_name: str) -> int:
+def get_num_rows(mspath: Union[str, os.PathLike], table_name: str) -> int:
     """
     Get number of rows in measurement set table.
     """
@@ -79,22 +79,22 @@ class MeasurementSetMetadata:
         """
         Enforce layout restrictions.
         """
-        if not getnrows(self.path, "SPECTRAL_WINDOW") == 1:
+        if not get_num_rows(self.path, "SPECTRAL_WINDOW") == 1:
             raise UnsupportedMeasurementSetLayout(
                 "Multiple spectral windows are not supported"
             )
 
-        if not getnrows(self.path, "FIELD") == 1:
+        if not get_num_rows(self.path, "FIELD") == 1:
             raise UnsupportedMeasurementSetLayout(
                 "Multiple fields are not supported"
             )
 
-        if not getnrows(self.path, "POLARIZATION") == 1:
+        if not get_num_rows(self.path, "POLARIZATION") == 1:
             raise UnsupportedMeasurementSetLayout(
                 "Mixed polarization rows are not supported"
             )
 
-        corr_types = getcol(self.path, "POLARIZATION", "CORR_TYPE")[0]
+        corr_types = get_column_data(self.path, "POLARIZATION", "CORR_TYPE")[0]
         if not tuple(corr_types) == (9, 10, 11, 12):
             raise UnsupportedMeasurementSetLayout(
                 "Polarization channels must be XX, XY, YX, YY"
@@ -112,7 +112,7 @@ class MeasurementSetMetadata:
         """
         Total number of rows in MAIN table.
         """
-        return getnrows(self.path, "MAIN")
+        return get_num_rows(self.path, "MAIN")
 
     @functools.cached_property
     def num_channels(self) -> int:
@@ -120,12 +120,20 @@ class MeasurementSetMetadata:
         Total number of frequency channels.
         """
         # NOTE: works only because we're assuming a single spectral window
-        return getcol(self.path, "SPECTRAL_WINDOW", "CHAN_FREQ").size
+        return get_column_data(self.path, "SPECTRAL_WINDOW", "CHAN_FREQ").size
 
 
 class MeasurementSetReader:
     """
-    Provides reading of a MeasurementSet v2, or a slice thereof.
+    Provides reading of a MeasurementSet v2, or a slice thereof. It is
+    effectively stores a path to disk and reading bounds along the rows
+    and the frequency channels.
+
+    Example
+    -------
+    >>> ms = MeasurementSet("path/to/dataset.ms")
+    >>> ms.set_row_bounds(0, 1_000_000)
+    >>> ms.set_channel_bounds(16, 32)
     """
 
     def __init__(
@@ -135,7 +143,8 @@ class MeasurementSetReader:
         validate_layout: bool = True,
     ) -> None:
         """
-        Initialize a MeasurementSetReader instance.
+        Initialize a MeasurementSetReader instance, with reading bounds that
+        include the whole data.
 
         Parameters
         ----------
@@ -204,7 +213,7 @@ class MeasurementSetReader:
     def set_row_bounds(self, row_start: int, row_end: int) -> None:
         """
         Set reading bounds along the row dimension. Out-of-bounds arguments
-        are clipped.
+        are clipped. Start index is inclusive, end index is exclusive.
         """
         self._row_start = max(row_start, 0)
         self._row_end = min(row_end, self._metadata.num_data_rows)
@@ -212,7 +221,8 @@ class MeasurementSetReader:
     def set_channel_bounds(self, channel_start: int, channel_end: int) -> None:
         """
         Set reading bounds along the frequency dimension. Out-of-bounds
-        arguments are clipped.
+        arguments are clipped. Start index is inclusive, end index is
+        exclusive.
         """
         self._channel_start = max(channel_start, 0)
         self._channel_end = min(channel_end, self._metadata.num_channels)
@@ -236,7 +246,8 @@ class MeasurementSetReader:
         Returns
         -------
         list of MeasurementSetReader
-            A list of MeasurementSetReader objects.
+            A list of MeasurementSetReader objects, each covering its own
+            data slice.
         """
         if not 1 <= row_chunks <= self.num_data_rows:
             raise ValueError(

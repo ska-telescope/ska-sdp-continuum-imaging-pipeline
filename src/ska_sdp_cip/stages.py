@@ -39,7 +39,7 @@ def invert_measurement_set(
     Parameters
     ----------
     ms_reader : MeasurementSetReader
-        An object to read the measurement set.
+        An object to read the measurement set, or a slice of it.
     num_pixels : int
         The number of pixels along one dimension of the square image.
     pixel_size_asec : float
@@ -140,7 +140,7 @@ def dask_invert_measurement_set(
     Parameters
     ----------
     ms_reader : MeasurementSetReader
-        An object to read the measurement set.
+        An object to read the measurement set, or a slice of it.
     client : Client
         A Dask client for scheduling distributed tasks.
     num_pixels : int
