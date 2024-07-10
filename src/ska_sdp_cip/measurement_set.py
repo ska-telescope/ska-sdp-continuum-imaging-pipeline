@@ -94,9 +94,14 @@ class MeasurementSetMetadata:
             )
 
         corr_types = get_column_data(self.path, "POLARIZATION", "CORR_TYPE")[0]
-        if not tuple(corr_types) == (9, 10, 11, 12):
+        accepted_corr_types = {
+            (9, 10, 11, 12),  # linear polarisation frame
+            (5, 6, 7, 8),  # circular polarisation frame
+        }
+        if not tuple(corr_types) in accepted_corr_types:
             raise UnsupportedMeasurementSetLayout(
-                "Polarization channels must be XX, XY, YX, YY"
+                "Polarization channels must be either XX, XY, YX, YY or "
+                "RR, RL, LR, LL"
             )
 
     @property

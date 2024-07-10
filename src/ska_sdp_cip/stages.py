@@ -32,6 +32,11 @@ def set_env(name: str, value: Any):
             os.environ[name] = previous_value
 
 
+# NOTE: This class currently exists for the sake of performing data reading in
+# a separate dask task. It is also assumes the input data is in a linear
+# or circular polarisation frame.
+# We will likely need a Visibility class that can handle all valid
+# polarisation conversions.
 @dataclass
 class StokesIGridderInput:
     """
