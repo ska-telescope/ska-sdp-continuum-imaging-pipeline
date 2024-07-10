@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 import numpy as np
-from dask import delayed
 from dask.distributed import Client, get_worker
 
 # pylint:disable=import-error,no-name-in-module
@@ -20,11 +22,68 @@ def set_env(name: str, value: Any):
     """
     previous_value = os.environ.get(name, None)
     os.environ[name] = str(value)
-    yield
-    if previous_value is None:
-        os.environ.pop(name)
-    else:
-        os.environ[name] = previous_value
+    try:
+        yield
+    finally:
+        if previous_value is None:
+            os.environ.pop(name)
+        else:
+            os.environ[name] = previous_value
+
+
+@dataclass
+class StokesIGridderInput:
+    """
+    Wraps Stokes I visibilities and associated data arrays to be passed to the
+    gridder.
+    """
+
+    channel_frequencies: NDArray
+    """
+    Channel frequencies as a numpy array with shape (nchan,)
+    """
+
+    flags: NDArray
+    """
+    Flags as a boolean numpy array with shape (nrows, nchan, npol).
+    """
+
+    uvw: NDArray
+    """
+    UVW coordinates as a numpy array with shape (nrows, 3).
+    """
+
+    visibilities: NDArray
+    """
+    Visibilities as a numpy array with shape (nrows, nchan, npol).
+    """
+
+    weights: NDArray
+    """
+    Data weights as a numpy array with shape (nrows, nchan, npol).
+    """
+
+    def effective_weights(self) -> NDArray:
+        """
+        Returns the product `weights x (1 - flags)`
+        """
+        return np.logical_not(self.flags) * self.weights
+
+    @classmethod
+    def from_measurement_set_reader(
+        cls, ms_reader: MeasurementSetReader
+    ) -> StokesIGridderInput:
+        """
+        Load data from MeasurementSetReader object.
+        """
+        # TODO: move stokes I conversion here
+        return cls(
+            ms_reader.channel_frequencies(),
+            ms_reader.stokes_i_flags(),
+            ms_reader.uvw(),
+            ms_reader.stokes_i_visibilities(),
+            ms_reader.stokes_i_weights(),
+        )
 
 
 def invert_measurement_set(
@@ -53,37 +112,35 @@ def invert_measurement_set(
     NDArray
         A 2D array representing the dirty image.
     """
-    image, total_weight = measurement_set_to_weighted_image(
-        ms_reader, num_pixels, pixel_size_asec, nthreads=nthreads
+    gridding_input = StokesIGridderInput.from_measurement_set_reader(ms_reader)
+    image, total_weight = ducc_invert(
+        gridding_input, num_pixels, pixel_size_asec, nthreads=nthreads
     )
     return (1.0 / total_weight) * image
 
 
-def measurement_set_to_weighted_image(
-    ms_reader: MeasurementSetReader,
+def ducc_invert(
+    gridder_input: StokesIGridderInput,
     num_pixels: int,
     pixel_size_asec: float,
     nthreads: int = os.cpu_count(),
 ) -> tuple[NDArray, float]:
     """
-    Invert the given measurement set, returning an unscaled dirty image and
+    Invert the given data, returning an unscaled dirty image and
     its total gridding weight. The latter is the factor by which
     the image values must be divided in order to obtain fluxes.
     """
     pixel_size_lm = np.sin(np.radians(pixel_size_asec / 3600.0))
-
-    mask = np.logical_not(ms_reader.stokes_i_flags())
-    weights = ms_reader.stokes_i_weights()
-    effective_weights = weights * mask
+    effective_weights = gridder_input.effective_weights()
 
     # NOTE: DUCC ignores the `nthreads` argument in favour of either
     # DUCC0_NUM_THREADS or OMP_NUM_THREADS; dask sets the latter to 1 by
     # default. This ensures we get the desired number of threads.
     with set_env("DUCC0_NUM_THREADS", nthreads):
         image = ms2dirty(
-            ms_reader.uvw(),
-            ms_reader.channel_frequencies(),
-            ms_reader.stokes_i_visibilities(),
+            gridder_input.uvw,
+            gridder_input.channel_frequencies,
+            gridder_input.visibilities,
             effective_weights,
             num_pixels,
             num_pixels,
@@ -94,20 +151,19 @@ def measurement_set_to_weighted_image(
             nthreads=nthreads,
             mask=None,  # already accounted for in effective_weights
         )
-
     return image, effective_weights.sum()
 
 
-def worker_measurement_set_to_weighted_image(
-    ms_reader: MeasurementSetReader, num_pixels: int, pixel_size_asec: float
+def worker_ducc_invert(
+    gridder_input: StokesIGridderInput, num_pixels: int, pixel_size_asec: float
 ) -> tuple[NDArray, float]:
     """
-    Same as measurement_set_to_weighted_image, but runs on a dask worker and
-    uses exactly its number of allocated threads.
+    Same as ducc_invert, but runs on a dask worker and uses exactly its number
+    of allocated threads.
     """
     nthreads = get_worker().state.nthreads
-    return measurement_set_to_weighted_image(
-        ms_reader, num_pixels, pixel_size_asec, nthreads=nthreads
+    return ducc_invert(
+        gridder_input, num_pixels, pixel_size_asec, nthreads=nthreads
     )
 
 
@@ -165,15 +221,20 @@ def dask_invert_measurement_set(
         num_workers = len(client.scheduler_info())
         freq_chunks = min(ms_reader.num_channels(), num_workers)
 
-    weighted_images = [
-        delayed(worker_measurement_set_to_weighted_image)(
-            chunk, num_pixels, pixel_size_asec
+    weighted_images = []
+    for chunk in ms_reader.partition(row_chunks, freq_chunks):
+        gridder_input = client.submit(
+            StokesIGridderInput.from_measurement_set_reader, chunk
         )
-        for chunk in ms_reader.partition(row_chunks, freq_chunks)
-    ]
-    integrated_image = delayed(integrate_weighted_images)(weighted_images)
-    # NOTE: the custom resource is to ensure only one multithreaded function
-    # call is running on a worker at any time.
-    return client.compute(
-        integrated_image, resources={"processing_slots": 1}
-    ).result()
+        # NOTE: the custom resource is to ensure only one multithreaded
+        # function call is running on a worker at any time.
+        weighted_image = client.submit(
+            worker_ducc_invert,
+            gridder_input,
+            num_pixels,
+            pixel_size_asec,
+            resources={"processing_slots": 1},
+        )
+        weighted_images.append(weighted_image)
+
+    return client.submit(integrate_weighted_images, weighted_images).result()
