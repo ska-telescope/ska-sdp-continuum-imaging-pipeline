@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import functools
 import os
-import warnings
 from pathlib import Path
 from typing import Iterator, Union
 
@@ -352,41 +351,6 @@ class MeasurementSetReader:
                 nrow, npol = data.shape
                 data = data.reshape(nrow, 1, npol)
                 return data.repeat(self.num_channels, axis=1)
-
-    def stokes_i_visibilities(self) -> NDArray:
-        """
-        Stokes I visibilities as a numpy array with shape (nrows, nchan)
-        """
-        vis = self.visibilities()
-        # NOTE: assuming XX, XY, YX, YY correlations
-        return 0.5 * (vis[..., 0] + vis[..., 3])
-
-    def stokes_i_flags(self) -> NDArray:
-        """
-        Appropriate flags for Stokes I imaging. A Stokes I visibility is
-        flagged if any of the correlations that contribute to its calculation
-        is flagged.
-        """
-        flags = self.flags()
-        return flags[..., (0, 3)].max(axis=-1)
-
-    def stokes_i_weights(self) -> NDArray:
-        """
-        Appropriate weights for Stokes I visibilities as a numpy array with
-        shape (nrows, nchan, npol).
-        """
-        weights = self.weights()
-        with warnings.catch_warnings():
-            # Ignore division by zero warning, it all works out below even
-            # for zero weights.
-            warnings.simplefilter("ignore")
-
-            # Stokes I visibilities = 1/2 * (vis_xx + vis_yy).
-            # Weights are the inverse of variances, and variances add linearly,
-            # hence this formula.
-            wxx = weights[..., 0]
-            wyy = weights[..., 3]
-            return 4.0 / (1.0 / wxx + 1.0 / wyy)
 
 
 def balanced_chunk_sizes(n: int, k: int) -> Iterator[int]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -74,15 +75,36 @@ class StokesIGridderInput:
         cls, ms_reader: MeasurementSetReader
     ) -> StokesIGridderInput:
         """
-        Load data from MeasurementSetReader object.
+        Load data from MeasurementSetReader object, converting to Stokes I
+        along the way.
         """
-        # TODO: move stokes I conversion here
+        # NOTE: assuming XX, XY, YX, YY correlations below.
+        vis = ms_reader.visibilities()
+        stokes_i_vis = 0.5 * (vis[..., 0] + vis[..., 3])
+
+        # Flag output Stokes I visibility if any of XX or YY is flagged
+        flags = ms_reader.flags()
+        stokes_i_flags = flags[..., (0, 3)].max(axis=-1)
+
+        weights = ms_reader.weights()
+        with warnings.catch_warnings():
+            # Ignore division by zero warning, it all works out below even
+            # for zero weights.
+            warnings.simplefilter("ignore")
+
+            # Stokes I visibilities = 1/2 * (vis_xx + vis_yy).
+            # Weights are the inverse of variances, and variances add linearly,
+            # hence this formula.
+            wxx = weights[..., 0]
+            wyy = weights[..., 3]
+            stokes_i_weights = 4.0 / (1.0 / wxx + 1.0 / wyy)
+
         return cls(
             ms_reader.channel_frequencies(),
-            ms_reader.stokes_i_flags(),
+            stokes_i_flags,
             ms_reader.uvw(),
-            ms_reader.stokes_i_visibilities(),
-            ms_reader.stokes_i_weights(),
+            stokes_i_vis,
+            stokes_i_weights,
         )
 
 

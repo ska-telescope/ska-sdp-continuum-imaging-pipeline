@@ -35,7 +35,6 @@ def test_reading_uvw_and_visibilities(ms_reader: MeasurementSetReader):
     """
     ms_reader.uvw()
     ms_reader.visibilities()
-    ms_reader.stokes_i_visibilities()
 
 
 def test_reading_flags(ms_reader: MeasurementSetReader):
