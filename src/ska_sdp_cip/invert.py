@@ -83,11 +83,13 @@ class StokesIGridderInput:
         Load data from MeasurementSetReader object, converting to Stokes I
         along the way.
         """
-        # NOTE: assuming XX, XY, YX, YY correlations below.
+        # NOTE: Assuming 4 polarisation products, and that indices 0 and 3
+        # Correspond to either {XX, YY} or {RR, LL} (order does not matter)
         vis = ms_reader.visibilities()
         stokes_i_vis = 0.5 * (vis[..., 0] + vis[..., 3])
 
-        # Flag output Stokes I visibility if any of XX or YY is flagged
+        # Flag output Stokes I visibility if any of the contributions in the
+        # sum is flags (XX or YY / RR or LL)
         flags = ms_reader.flags()
         stokes_i_flags = flags[..., (0, 3)].max(axis=-1)
 
@@ -97,7 +99,8 @@ class StokesIGridderInput:
             # for zero weights.
             warnings.simplefilter("ignore")
 
-            # Stokes I visibilities = 1/2 * (vis_xx + vis_yy).
+            # Stokes I visibilities = 1/2 * (vis_aa + vis_bb),
+            # where (a, b) = (X, Y) or (R, L).
             # Weights are the inverse of variances, and variances add linearly,
             # hence this formula.
             wxx = weights[..., 0]
