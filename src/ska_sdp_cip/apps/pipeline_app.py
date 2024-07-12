@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from dask.distributed import Client
+from dask.distributed import Client, get_task_stream, performance_report
 
 from ska_sdp_cip import (
     MeasurementSetReader,
@@ -11,6 +11,7 @@ from ska_sdp_cip import (
     dask_invert_measurement_set,
     invert_measurement_set,
 )
+from ska_sdp_cip.task_metrics import TaskMetrics
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -90,13 +91,19 @@ def run_program(cli_args: list[str]) -> None:
         )
     else:
         client = Client(args.dask_scheduler)
-        img = dask_invert_measurement_set(
-            mset,
-            client,
-            num_pixels=args.num_pixels,
-            pixel_size_asec=args.pixel_size,
-            row_chunks=args.row_chunks,
-            freq_chunks=args.freq_chunks,
+        with get_task_stream(client) as stream, performance_report(
+            filename="dask-report.html"
+        ):
+            img = dask_invert_measurement_set(
+                mset,
+                client,
+                num_pixels=args.num_pixels,
+                pixel_size_asec=args.pixel_size,
+                row_chunks=args.row_chunks,
+                freq_chunks=args.freq_chunks,
+            )
+        TaskMetrics(stream.data).save_json(
+            "task-list.json", indent=4, sort_keys=True
         )
 
     np.save(args.output_image.with_suffix(".npy"), img)
