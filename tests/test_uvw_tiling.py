@@ -1,7 +1,7 @@
 import numpy as np
 
 from ska_sdp_cip import MeasurementSetReader
-from ska_sdp_cip.uvw_tiling import create_uvw_tiling_plan
+from ska_sdp_cip.uvw_tiling import create_uvw_tile_chunking_plan
 
 
 def test_create_uvw_tiling_plan(ms_reader: MeasurementSetReader):
@@ -21,7 +21,7 @@ def test_create_uvw_tiling_plan(ms_reader: MeasurementSetReader):
     freq_step = bandwidth / nchan
     channel_freqs = freq_start + freq_step * np.arange(nchan)
 
-    plan = create_uvw_tiling_plan(
+    plan = create_uvw_tile_chunking_plan(
         uvw, tile_size, channel_freqs, max_vis_per_chunk=max_vis_per_chunk
     )
 

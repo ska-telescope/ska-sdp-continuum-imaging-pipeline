@@ -1,3 +1,6 @@
+import math
+import multiprocessing
+import os
 from collections import defaultdict
 from typing import NamedTuple
 
@@ -31,24 +34,31 @@ class RowSlice(NamedTuple):
     chan_stop: int
 
 
-TilingPlan = dict[TileChunk, list[RowSlice]]
+TileMapping = dict[TileCoords, list[RowSlice]]
+
+TileChunkingPlan = dict[TileChunk, list[RowSlice]]
 
 DEFAULT_MAX_VIS_PER_CHUNK = 1_000_000
 
 
-def create_uvw_tile_mapping(
-    uvw: NDArray, tile_size: tuple[float, float, float], channel_freqs: NDArray
-) -> dict[TileCoords, list[RowSlice]]:
+def create_uvw_tile_mapping_sequential(
+    uvw: NDArray,
+    tile_size: tuple[float, float, float],
+    channel_freqs: NDArray,
+    *,
+    row_offset: int = 0,
+) -> TileMapping:
     """
-    Bin the UVW coordinates of visibilities by UVW tile.
+    Bin the UVW coordinates of visibilities by UVW tile,
+    using a single process. The `row_offset` argument is used when
+    parallelizing the work across multiple UVW chunks.
     """
-    SPEED_OF_LIGHT = 299792458.0
-    wavelength_inv = channel_freqs.reshape(-1, 1) / SPEED_OF_LIGHT
+    speed_of_light = 299792458.0
+    wavelength_inv = channel_freqs.reshape(-1, 1) / speed_of_light
     tile_size = np.asarray(tile_size)
+    tile_mapping = defaultdict(list)
 
-    tile_mapping: dict[TileCoords, list[RowSlice]] = defaultdict(list)
-
-    for irow, row_uvw in enumerate(uvw):
+    for irow, row_uvw in enumerate(uvw, start=row_offset):
         # The +0.5 takes into account the fact that the tile with index
         # (0, 0, 0) is *centered* on the origin.
         tile_indices = np.floor(
@@ -64,15 +74,95 @@ def create_uvw_tile_mapping(
     return tile_mapping
 
 
+class TileMappingCreator:
+    """
+    Helper class for parallelizing the computation of tile mappings.
+    """
+
+    def __init__(
+        self, tile_size: tuple[float, float, float], channel_freqs: NDArray
+    ) -> None:
+        self.tile_size = tile_size
+        self.channel_freqs = channel_freqs
+
+    def __call__(
+        self, chunk_and_offset: tuple[NDArray, int]
+    ) -> dict[TileCoords, list[RowSlice]]:
+        uvw, row_offset = chunk_and_offset
+        return create_uvw_tile_mapping_sequential(
+            uvw, self.tile_size, self.channel_freqs, row_offset=row_offset
+        )
+
+
+def create_uvw_tile_mapping(
+    uvw: NDArray,
+    tile_size: tuple[float, float, float],
+    channel_freqs: NDArray,
+    *,
+    processes: int = os.cpu_count(),
+) -> TileMapping:
+    """
+    Bin the UVW coordinates of visibilities by UVW tile.
+
+    Args:
+        uvw: A 2D numpy array of shape (num_rows, 3) containing UVW
+            coordinates.
+        tile_size: A tuple of three floats representing the size of the tiles
+            in the U, V, and W directions.
+        channel_freqs: A 1D numpy array containing the channel frequencies.
+        processes: Number of parallel processes to use.
+
+    Returns:
+        mapping: A dictionary where keys are tile coordinates as an integer
+            3-tuple (iu, iv, iw), and the values are lists of `RowSlice`
+            namedtuples. `RowSlice` carries a row index, start channel
+            index and stop channel index.
+    """
+    num_rows = len(uvw)
+    rows_per_chunk = math.ceil(num_rows / processes)
+
+    uvw_chunks_and_row_offsets = []
+    for i in range(0, processes):
+        row_start = i * rows_per_chunk
+        row_end = (i + 1) * rows_per_chunk
+        chunk = uvw[row_start:row_end]
+        uvw_chunks_and_row_offsets.append((chunk, row_start))
+
+    func = TileMappingCreator(tile_size, channel_freqs)
+
+    # NOTE: we don't use a "with" statement to wrap the pool creation,
+    # because if we do, we don't get code coverage measurements for code
+    # executed by pool processes.
+    # pylint:disable=consider-using-with
+    pool = multiprocessing.Pool(processes=processes)
+    result = merge_tile_mappings(pool.map(func, uvw_chunks_and_row_offsets))
+    pool.close()
+    pool.join()
+    return result
+
+
+def merge_tile_mappings(tile_mappings: list[TileMapping]) -> TileMapping:
+    """
+    Merge tile mappings into one.
+    """
+
+    result = defaultdict(list)
+    for mapping in tile_mappings:
+        for tile_coords, row_slices in mapping.items():
+            result[tile_coords].extend(row_slices)
+
+    return dict(result)
+
+
 def split_uvw_tile_mapping(
-    tile_mapping: dict[TileCoords, list[RowSlice]],
+    tile_mapping: TileMapping,
     max_vis_per_chunk: int = DEFAULT_MAX_VIS_PER_CHUNK,
-) -> TilingPlan:
+) -> TileChunkingPlan:
     """
     Further split the tiles that contain more visibility samples than the
     specified maximum. Returns a new mapping TileChunk -> list of RowSlices.
     """
-    tiling_plan: dict[TileChunk, list[RowSlice]] = defaultdict(list)
+    tiling_plan = defaultdict(list)
 
     for tile_index, row_slices in tile_mapping.items():
         tile_chunk = TileChunk(tile_index, 0)
@@ -82,7 +172,7 @@ def split_uvw_tile_mapping(
             num_vis = row_slice.chan_stop - row_slice.chan_start
 
             # Create new chunk if chunk population would exceed limit
-            if (chunk_population + num_vis) >= max_vis_per_chunk:
+            if (chunk_population + num_vis) > max_vis_per_chunk:
                 tile_chunk = TileChunk(
                     tile_chunk.coords, tile_chunk.ichunk + 1
                 )
@@ -94,12 +184,14 @@ def split_uvw_tile_mapping(
     return dict(tiling_plan)
 
 
-def create_uvw_tiling_plan(
+def create_uvw_tile_chunking_plan(
     uvw: NDArray,
     tile_size: tuple[float, float, float],
     channel_freqs: NDArray,
+    *,
     max_vis_per_chunk: int = DEFAULT_MAX_VIS_PER_CHUNK,
-) -> TilingPlan:
+    processes: int = os.cpu_count(),
+) -> TileChunkingPlan:
     """
     Bin the UVW coordinates of visibilities by UVW tile. Tiles whose total
     number of visibilities would exceed the given limit are further split
@@ -113,15 +205,18 @@ def create_uvw_tiling_plan(
         channel_freqs: A 1D numpy array containing the channel frequencies.
         max_vis_per_chunk: Maximum number of visibility samples that can be
             contained into a data chunk.
+        processes: Number of parallel processes to use.
 
     Returns:
-        tiling_plan: A dictionary where keys are `TilingChunk` namedtuples,
+        plan: A dictionary where keys are `TilingChunk` namedtuples,
             and the values are lists of `RowSlice` namedtuples.
             `TilingChunk` is the aggregation of a 3-tuple of tile coordinates
             and of a chunk index. `RowSlice` carries a row index, start channel
             index and stop channel index.
     """
-    tile_mapping = create_uvw_tile_mapping(uvw, tile_size, channel_freqs)
+    tile_mapping = create_uvw_tile_mapping(
+        uvw, tile_size, channel_freqs, processes=processes
+    )
     return split_uvw_tile_mapping(tile_mapping, max_vis_per_chunk)
 
 
