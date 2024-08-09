@@ -166,6 +166,9 @@ def split_uvw_tile_mapping_into_chunks(
     """
     Further split the tiles that contain more visibility samples than the
     specified maximum. Returns a new mapping TileChunk -> list of RowSlices.
+
+    NOTE: Row slices are considered atomic, i.e. they cannot be split along
+    the frequency dimension.
     """
     tiling_plan = defaultdict(list)
 
@@ -176,8 +179,13 @@ def split_uvw_tile_mapping_into_chunks(
         for row_slice in row_slices:
             num_vis = row_slice.chan_stop - row_slice.chan_start
 
-            # Create new chunk if chunk population would exceed limit
-            if (chunk_population + num_vis) > max_vis_per_chunk:
+            # Create new chunk if chunk population would exceed limit.
+            # However, chunks must contain at least one row slice regardless
+            # of the limit.
+            if (
+                chunk_population != 0
+                and (chunk_population + num_vis) > max_vis_per_chunk
+            ):
                 tile_chunk = TileChunk(
                     tile_chunk.coords, tile_chunk.ichunk + 1
                 )
