@@ -7,10 +7,15 @@ from typing import NamedTuple
 import numpy as np
 from numpy.typing import NDArray
 
-TileCoords = tuple[int, int, int]
-"""
-Tile index of the form (iu, iv, iw)
-"""
+
+class TileCoords(NamedTuple):
+    """
+    Tile index of the form (iu, iv, iw)
+    """
+
+    iu: int
+    iv: int
+    iw: int
 
 
 class TileChunk(NamedTuple):
@@ -69,7 +74,8 @@ def create_uvw_tile_mapping_sequential(
         # in the array above.
         subarrays = _find_all_constant_tile_index_subarrays(tile_indices)
         for start_ch, stop_ch, tile_index in subarrays:
-            tile_mapping[tile_index].append(RowSlice(irow, start_ch, stop_ch))
+            tile_coords = TileCoords(*tile_index)
+            tile_mapping[tile_coords].append(RowSlice(irow, start_ch, stop_ch))
 
     return tile_mapping
 
@@ -113,10 +119,9 @@ def create_uvw_tile_mapping(
         processes: Number of parallel processes to use.
 
     Returns:
-        mapping: A dictionary where keys are tile coordinates as an integer
-            3-tuple (iu, iv, iw), and the values are lists of `RowSlice`
-            namedtuples. `RowSlice` carries a row index, start channel
-            index and stop channel index.
+        mapping: A dictionary where keys are `TileCoords` namedtuples, and the
+            values are lists of `RowSlice` namedtuples. `RowSlice` carries a
+            row index, start channel index and stop channel index.
     """
     num_rows = len(uvw)
     rows_per_chunk = math.ceil(num_rows / processes)
@@ -154,7 +159,7 @@ def merge_tile_mappings(tile_mappings: list[TileMapping]) -> TileMapping:
     return dict(result)
 
 
-def split_uvw_tile_mapping(
+def split_uvw_tile_mapping_into_chunks(
     tile_mapping: TileMapping,
     max_vis_per_chunk: int = DEFAULT_MAX_VIS_PER_CHUNK,
 ) -> TileChunkingPlan:
@@ -164,8 +169,8 @@ def split_uvw_tile_mapping(
     """
     tiling_plan = defaultdict(list)
 
-    for tile_index, row_slices in tile_mapping.items():
-        tile_chunk = TileChunk(tile_index, 0)
+    for tile_coords, row_slices in tile_mapping.items():
+        tile_chunk = TileChunk(tile_coords, 0)
         chunk_population = 0
 
         for row_slice in row_slices:
@@ -210,26 +215,26 @@ def create_uvw_tile_chunking_plan(
     Returns:
         plan: A dictionary where keys are `TilingChunk` namedtuples,
             and the values are lists of `RowSlice` namedtuples.
-            `TilingChunk` is the aggregation of a 3-tuple of tile coordinates
+            `TilingChunk` is the aggregation of tile coordinates
             and of a chunk index. `RowSlice` carries a row index, start channel
             index and stop channel index.
     """
     tile_mapping = create_uvw_tile_mapping(
         uvw, tile_size, channel_freqs, processes=processes
     )
-    return split_uvw_tile_mapping(tile_mapping, max_vis_per_chunk)
+    return split_uvw_tile_mapping_into_chunks(tile_mapping, max_vis_per_chunk)
 
 
 def _find_all_constant_tile_index_subarrays(
     arr: NDArray, offset: int = 0
-) -> list[tuple[int, int, TileCoords]]:
+) -> list[tuple[int, int, tuple[int, int, int]]]:
     """
     Find the parameters of all constant subarrays in given array of tile
     indices (iu, iv, iw) using a recursive binary search.
     We can use a binary search because we know the tile indices are
     monotonically increasing (channel frequencies are increasing).
 
-    Returns a list of tuples (start_index, stop_index, tile_index).
+    Returns a list of tuples (start_index, stop_index, (iu, iv, iw)).
     """
     n = len(arr)
     if np.array_equal(arr[0], arr[-1]):
