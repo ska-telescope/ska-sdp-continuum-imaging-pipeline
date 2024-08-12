@@ -159,7 +159,10 @@ def _find_all_constant_tile_index_subarrays(
     """
     n = len(arr)
     if np.array_equal(arr[0], arr[-1]):
-        return [(offset, offset + n, tuple(arr[0]))]
+        # Convert np.int64 indices to native python int
+        u, v, w = arr[0]
+        tile_coords = (int(u), int(v), int(w))
+        return [(offset, offset + n, tile_coords)]
 
     half = n // 2
     head = _find_all_constant_tile_index_subarrays(arr[:half], offset)
