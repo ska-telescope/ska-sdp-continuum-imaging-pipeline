@@ -1,3 +1,4 @@
+from .tile import Tile
 from .tiling_plan import (
     RowSliceId,
     TileCoords,
@@ -10,4 +11,5 @@ __all__ = [
     "RowSliceId",
     "TileCoords",
     "TileMapping",
+    "Tile",
 ]
