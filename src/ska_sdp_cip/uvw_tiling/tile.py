@@ -81,7 +81,7 @@ class Tile:
         )
 
     @classmethod
-    def from_jagged_visibilities_slice(
+    def _from_jagged_visibilities_slice(
         cls,
         vis: NDArray,
         uvw: NDArray,
@@ -216,7 +216,7 @@ def rechunk_tiles_on_disk(
     outdir: Path,
     basename: str,
     *,
-    max_vis_per_chunk: int = 10_000_000,
+    max_vis_per_chunk: int = 5_000_000,
 ) -> list[Path]:
     """
     Given an iterable of tile chunk file paths with the same tile coordinates,
@@ -240,11 +240,12 @@ def rechunk_tiles_on_disk(
     for paths in tile_paths:
         tile = Tile.load_npz(paths)
         queue.append(tile)
+        nvis_in_queue = sum(t.num_visibilities for t in queue)
 
-        if len(queue) == 2:
+        if len(queue) > 1 and nvis_in_queue > max_vis_per_chunk:
             queue = [concatenate_tiles(queue)]
 
-        if len(queue) == 1 and queue[0].num_visibilities > max_vis_per_chunk:
+        if len(queue) == 1 and nvis_in_queue > max_vis_per_chunk:
             # split tile in N chunks
             chunks = split_tile(queue[0], max_vis_per_chunk)
 
@@ -254,6 +255,9 @@ def rechunk_tiles_on_disk(
 
             # place remainder in queue
             queue = [chunks[-1]]
+
+    if len(queue) > 1:
+        queue = [concatenate_tiles(queue)]
 
     for tile in queue:
         _write_tile(tile)

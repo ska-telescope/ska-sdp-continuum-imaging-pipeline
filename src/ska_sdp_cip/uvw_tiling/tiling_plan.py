@@ -97,6 +97,7 @@ def create_uvw_tile_mapping(
         tile_size: A tuple of three floats representing the size of the tiles
             in the U, V, and W directions.
         channel_freqs: A 1D numpy array containing the channel frequencies.
+            NOTE: They must be monotonically increasing or decreasing.
         processes: Number of parallel processes to use.
 
     Returns:

@@ -1,14 +1,12 @@
+import itertools
 import os
-import shutil
-import time
 from pathlib import Path
-from typing import Iterable, Iterator
 
-import numpy as np
-from dask.distributed import Client, Future, get_worker
+from dask.distributed import Client, Future, as_completed, get_worker
+from numpy.typing import NDArray
 
 from ska_sdp_cip import MeasurementSetReader
-from ska_sdp_cip.uvw_tiling.tile import Tile, concatenate_tiles, split_tile
+from ska_sdp_cip.uvw_tiling.tile import Tile, rechunk_tiles_on_disk
 from ska_sdp_cip.uvw_tiling.tiling_plan import (
     TileCoords,
     TileMapping,
@@ -16,39 +14,59 @@ from ska_sdp_cip.uvw_tiling.tiling_plan import (
 )
 
 
+# pylint:disable=too-many-locals
 def reorder_by_uvw_tile(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
     outdir: Path,
     client: Client,
-) -> None:
+    *,
+    num_time_intervals: int = 16,
+    max_vis_per_chunk: int = 5_000_000,
+) -> list[Path]:
     """
-    Top-level function.
+    Convert visibilities to Stokes I and reorder them into UVW tile chunks
+    using multiple dask workers.
+
+    The reordering is made in two passes:
+    1. Process individual time intervals, bin visibilities into tiles for each
+        interval, save tiles to disk.
+    2. Group tiles with the same coordinates, and rechunk them into files
+        containing as close to `max_vis_per_chunk` visibilities.
+
+    Args:
+        ms_reader: The MeasurementSetReader reader instance to read the
+            visibility data.
+        tile_size: The size of the tiles in usual uvw coordinates (in units)
+            of wavelengths, as a tuple (u_size, v_size, w_size).
+        outdir: The output directory where the reordered tiles will be written.
+        client: The dask client used to manage parallel tasks.
+        num_time_intervals: The number of time intervals to partition the data
+            into.
+        max_vis_per_chunk: The maximum number of visibilities per tile chunk in
+            the final output files.
+
+    Returns:
+        list[Path]: A list of Paths to the tile chunks that were written.
     """
-    start_time = time.perf_counter()
+    # Must make paths absolute before sending them to other workers
+    outdir = outdir.resolve()
+    channel_freqs = ms_reader.channel_frequencies()
+    tile_coords_lists_futures: list[Future] = []
 
-    # NOTE: should check that freqs are evenly spaced and nchan >= 2
-    freqs = ms_reader.channel_frequencies()
-    freq_start = freqs[0]
-    freq_step = freqs[1] - freqs[0]
-
-    num_intervals = 12  # NOTE: needs to be chosen dynamically
-    futures: list[Future] = []
-
+    # Reorder time intervals in parallel
     for interval_index, interval_reader in enumerate(
-        ms_reader.partition(num_intervals, 1)
+        ms_reader.partition(num_time_intervals, 1)
     ):
         tile_mapping = client.submit(
             create_time_interval_tile_mapping,
             interval_reader,
             tile_size,
-            freq_start=freq_start,
-            freq_step=freq_step,
-            num_channels=len(freqs),
+            channel_freqs,
             resources={"processing_slots": 1},
         )
 
-        future = client.submit(
+        tile_coords_list = client.submit(
             reorder_time_interval,
             interval_reader,
             tile_mapping,
@@ -56,29 +74,46 @@ def reorder_by_uvw_tile(
             interval_index=interval_index,
         )
 
-        futures.append(future)
+        tile_coords_lists_futures.append(tile_coords_list)
 
-    for future in futures:
-        future.result()
+    # Wait until all intervals have been reordered
+    # Build the set of tile coordinates that are non-empty
+    tile_coords_set = set()
+    for future in as_completed(tile_coords_lists_futures):
+        tile_coords_set.update(future.result())
 
-    elapsed = time.perf_counter() - start_time
-    print(f"Finished in {elapsed:.1f} seconds")
+    # Rechunk all tiles
+    # NOTE: tile populations vary widely, so maybe we should avoid having
+    # one task per tile, and instead group some sparsely populated tiles
+    # together.
+    rechunk_futures = [
+        client.submit(
+            rechunk_tile_chunk_group,
+            tile_coords,
+            outdir,
+            max_vis_per_chunk=max_vis_per_chunk,
+        )
+        for tile_coords in tile_coords_set
+    ]
+
+    output_paths = list(
+        itertools.chain.from_iterable(
+            fut.result() for fut in as_completed(rechunk_futures)
+        )
+    )
+    return output_paths
 
 
 def create_time_interval_tile_mapping(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
-    *,
-    freq_start: float,
-    freq_step: float,
-    num_channels: int,
+    channel_freqs: NDArray,
 ) -> TileMapping:
     """
     Compute the UVW tile mapping for a particular time interval.
     """
     nthreads = _get_num_threads()
     uvw = ms_reader.uvw()
-    channel_freqs = freq_start + freq_step * np.arange(num_channels)
     return create_uvw_tile_mapping(
         uvw, tile_size, channel_freqs, processes=nthreads
     )
@@ -90,10 +125,12 @@ def reorder_time_interval(
     outdir: Path,
     *,
     interval_index: int,
-) -> None:
+) -> list[TileCoords]:
     """
     Perform the actual reordering of the visibilities inside a time interval,
     given a pre-computed UVW time mapping for it.
+
+    Returns the list of TileCoords present in that interval.
     """
 
     uvw = ms_reader.uvw()
@@ -101,11 +138,42 @@ def reorder_time_interval(
     stokes_i_vis = 0.5 * (vis[..., 0] + vis[..., 3])
 
     for coords, row_slices in tile_mapping.items():
-        tile = Tile.from_jagged_visibilities_slice(
+        # pylint: disable=protected-access
+        tile = Tile._from_jagged_visibilities_slice(
             stokes_i_vis, uvw, coords, row_slices
         )
         path = outdir / _tile_filename(coords, interval_index)
         tile.save_npz(path)
+
+    return list(tile_mapping.keys())
+
+
+def rechunk_tile_chunk_group(
+    tile_coords: TileCoords,
+    outdir: Path,
+    *,
+    max_vis_per_chunk: int = 5_000_000,
+) -> list[Path]:
+    """
+    Rechunk the files associated to given tile coords that are present inside
+    `outdir`. Returns the list of written file paths.
+    """
+    u, v, w = tile_coords
+    pattern = f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}_interval*.npz"
+    input_paths = list(outdir.glob(pattern))
+    output_basename = f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}"
+
+    output_paths = rechunk_tiles_on_disk(
+        input_paths,
+        outdir,
+        output_basename,
+        max_vis_per_chunk=max_vis_per_chunk,
+    )
+
+    for path in input_paths:
+        path.unlink()
+
+    return output_paths
 
 
 def _tile_filename(tile_coords: TileCoords, interval_index: int) -> str:
@@ -115,17 +183,6 @@ def _tile_filename(tile_coords: TileCoords, interval_index: int) -> str:
         f"interval{interval_index:02d}"
         ".npz"
     )
-
-
-def _iter_time_interval_tiles(
-    directory: Path, tile_coords: TileCoords
-) -> Iterator[Tile]:
-
-    u, v, w = tile_coords
-    pattern = f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}*.npz"
-
-    for path in directory.glob(pattern):
-        yield Tile.load_npz(path)
 
 
 def _get_num_threads() -> int:
