@@ -56,9 +56,10 @@ def get_parser() -> argparse.ArgumentParser:
         "-n",
         "--num-time-intervals",
         type=int,
-        default=16,
+        default=None,
         help=(
             "Split the input data into this many time chunks between workers. "
+            "If None, a choice is made automatically."
         ),
     )
     parser.add_argument(

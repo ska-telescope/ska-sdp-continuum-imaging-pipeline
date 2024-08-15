@@ -1,6 +1,7 @@
 import itertools
 import os
 from pathlib import Path
+from typing import Optional
 
 from dask.distributed import Client, Future, as_completed, get_worker
 from numpy.typing import NDArray
@@ -21,7 +22,7 @@ def reorder_by_uvw_tile(
     outdir: Path,
     client: Client,
     *,
-    num_time_intervals: int = 16,
+    num_time_intervals: Optional[int] = None,
     max_vis_per_chunk: int = 5_000_000,
 ) -> list[Path]:
     """
@@ -42,13 +43,19 @@ def reorder_by_uvw_tile(
         outdir: The output directory where the reordered tiles will be written.
         client: The dask client used to manage parallel tasks.
         num_time_intervals: The number of time intervals to partition the data
-            into.
+            into. If None, pick a multiple of the number of available workers.
         max_vis_per_chunk: The maximum number of visibilities per tile chunk in
             the final output files.
 
     Returns:
         list[Path]: A list of Paths to the tile chunks that were written.
     """
+
+    if num_time_intervals is None:
+        num_time_intervals = max(
+            2 * len(client.scheduler_info()["workers"]), 2
+        )
+
     # Must make paths absolute before sending them to other workers
     outdir = outdir.resolve()
     channel_freqs = ms_reader.channel_frequencies()
