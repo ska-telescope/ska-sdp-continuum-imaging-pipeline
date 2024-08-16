@@ -14,6 +14,7 @@ requires = ["poetry-core>=1.0.0"]
 
 [tool.poetry.scripts]
 ska-sdp-cip = "ska_sdp_cip.apps.pipeline_app:main"
+ska-sdp-cip-read-tile-chunks = "ska_sdp_cip.apps.uvw_reorder_read_tile_chunks:main"
 ska-sdp-cip-reorder-uvw = "ska_sdp_cip.apps.uvw_reorder_app:main"
 
 [tool.poetry.dependencies]
