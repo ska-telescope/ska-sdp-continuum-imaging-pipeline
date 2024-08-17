@@ -1,18 +1,41 @@
 import itertools
 import os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from dask.distributed import Client, Future, as_completed, get_worker
+import dask
+from dask.distributed import (
+    Client,
+    Future,
+    WorkerPlugin,
+    as_completed,
+    get_worker,
+)
+from distributed import Worker
 from numpy.typing import NDArray
 
 from ska_sdp_cip import MeasurementSetReader
 from ska_sdp_cip.uvw_tiling.tile import Tile, rechunk_tiles_on_disk
-from ska_sdp_cip.uvw_tiling.tiling_plan import (
+from ska_sdp_cip.uvw_tiling.tile_mapping import (
     TileCoords,
     TileMapping,
     create_uvw_tile_mapping,
 )
+
+
+class AddProcessPool(WorkerPlugin):
+    """
+    WorkerPlugin that makes a worker run tasks via processes rather than
+    threads. This is useful because we're running tasks that do NOT release
+    the GIL, including reading MSv2 chunks via casacore.
+
+    See: https://www.youtube.com/watch?v=vF2VItVU5zg
+    """
+
+    def setup(self, worker: Worker):
+        executor = ProcessPoolExecutor(max_workers=worker.state.nthreads)
+        worker.executors["processes"] = executor
 
 
 # pylint:disable=too-many-locals
@@ -52,34 +75,38 @@ def reorder_by_uvw_tile(
     """
 
     if num_time_intervals is None:
-        num_time_intervals = max(
-            2 * len(client.scheduler_info()["workers"]), 2
+        total_threads = sum(
+            winfo["nthreads"]
+            for winfo in client.scheduler_info()["workers"].values()
         )
+        num_time_intervals = max(2 * total_threads, 2)
 
     # Must make paths absolute before sending them to other workers
     outdir = outdir.resolve()
     channel_freqs = ms_reader.channel_frequencies()
     tile_coords_lists_futures: list[Future] = []
 
+    client.register_plugin(AddProcessPool())
+
     # Reorder time intervals in parallel
     for interval_index, interval_reader in enumerate(
         ms_reader.partition(num_time_intervals, 1)
     ):
-        tile_mapping = client.submit(
-            create_time_interval_tile_mapping,
-            interval_reader,
-            tile_size,
-            channel_freqs,
-            resources={"processing_slots": 1},
-        )
+        with dask.annotate(executor="processes"):
+            tile_mapping = client.submit(
+                create_time_interval_tile_mapping,
+                interval_reader,
+                tile_size,
+                channel_freqs,
+            )
 
-        tile_coords_list = client.submit(
-            reorder_time_interval,
-            interval_reader,
-            tile_mapping,
-            outdir,
-            interval_index=interval_index,
-        )
+            tile_coords_list = client.submit(
+                reorder_time_interval,
+                interval_reader,
+                tile_mapping,
+                outdir,
+                interval_index=interval_index,
+            )
 
         tile_coords_lists_futures.append(tile_coords_list)
 
@@ -119,11 +146,8 @@ def create_time_interval_tile_mapping(
     """
     Compute the UVW tile mapping for a particular time interval.
     """
-    nthreads = _get_num_threads()
     uvw = ms_reader.uvw()
-    return create_uvw_tile_mapping(
-        uvw, tile_size, channel_freqs, processes=nthreads
-    )
+    return create_uvw_tile_mapping(uvw, tile_size, channel_freqs)
 
 
 def reorder_time_interval(

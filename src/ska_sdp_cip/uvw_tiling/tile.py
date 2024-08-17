@@ -8,7 +8,7 @@ from typing import Iterable, Sequence, Union
 import numpy as np
 from numpy.typing import NDArray
 
-from ska_sdp_cip.uvw_tiling.tiling_plan import RowSliceId, TileCoords
+from ska_sdp_cip.uvw_tiling.tile_mapping import RowSliceId, TileCoords
 
 
 @dataclass(repr=False)

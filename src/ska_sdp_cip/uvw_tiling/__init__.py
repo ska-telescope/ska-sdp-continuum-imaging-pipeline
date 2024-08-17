@@ -1,6 +1,6 @@
 from .reorder import reorder_by_uvw_tile
 from .tile import Tile
-from .tiling_plan import (
+from .tile_mapping import (
     RowSliceId,
     TileCoords,
     TileMapping,
