@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -263,3 +264,61 @@ def rechunk_tiles_on_disk(
         _write_tile(tile)
 
     return result
+
+
+def rechunk_tiles(
+    tiles: Iterable[Tile],
+    outdir: Path,
+    basename: str,
+    *,
+    max_vis_per_chunk: int = 5_000_000,
+    force_export: bool = False,
+) -> tuple[list[Path], list[Tile]]:
+    """
+    Rechunk list of tiles with the same coordinates and write them to disk.
+    Output files are named `{basename}_{UUID4}.npz`.
+    If force_export is True, all data is exported, even if that means writing
+    tiles smaller than `max_vis_per_chunk`.
+
+    Returns a tuple :
+        - List of Paths written
+        - List of Tiles that were not exported because they were too small
+    """
+    paths: list[Path] = []
+    queue: list[Tile] = []
+    num_written = 0
+
+    def _write_tile(tile: Tile) -> None:
+        nonlocal num_written
+        filepath = outdir / f"{basename}_{str(uuid.uuid4())}.npz"
+        paths.append(filepath)
+        tile.save_npz(filepath)
+        num_written += 1
+
+    for tile in tiles:
+        queue.append(tile)
+        nvis_in_queue = sum(t.num_visibilities for t in queue)
+
+        if len(queue) > 1 and nvis_in_queue > max_vis_per_chunk:
+            queue = [concatenate_tiles(queue)]
+
+        if len(queue) == 1 and nvis_in_queue > max_vis_per_chunk:
+            # split tile in N chunks
+            chunks = split_tile(queue[0], max_vis_per_chunk)
+
+            # export full chunks
+            for chunk in chunks[:-1]:
+                _write_tile(chunk)
+
+            # place remainder in queue
+            queue = [chunks[-1]]
+
+    if len(queue) > 1:
+        queue = [concatenate_tiles(queue)]
+
+    if force_export:
+        for tile in queue:
+            _write_tile(tile)
+        return paths, []
+
+    return paths, queue
