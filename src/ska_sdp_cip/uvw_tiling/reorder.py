@@ -1,26 +1,20 @@
 import itertools
-import os
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Optional
-from collections import defaultdict
 
 import dask
-from dask.distributed import (
-    Client,
-    Future,
-    WorkerPlugin,
-    as_completed,
-    get_worker,
-)
+from dask import delayed
+from dask.distributed import Client, Future, WorkerPlugin
 from distributed import Worker
 from numpy.typing import NDArray
 
 from ska_sdp_cip import MeasurementSetReader
 from ska_sdp_cip.uvw_tiling.tile import (
     Tile,
-    rechunk_tiles_on_disk,
     rechunk_tiles,
+    rechunk_tiles_on_disk,
 )
 from ska_sdp_cip.uvw_tiling.tile_mapping import (
     TileCoords,
@@ -90,54 +84,39 @@ def reorder_by_uvw_tile(
     outdir = outdir.resolve()
     channel_freqs = ms_reader.channel_frequencies()
 
-    paths_written_futures: list[Future] = []
-    remainder_chunks_futures: list[Future] = []
+    paths_written_list = []
+    remaining_tiles_list = []
 
     client.register_plugin(AddProcessPool())
 
     # Reorder time intervals in parallel
     for interval_reader in ms_reader.partition(num_time_intervals, 1):
         with dask.annotate(executor="processes"):
-            tile_mapping = client.submit(
-                create_time_interval_tile_mapping,
-                interval_reader,
-                tile_size,
-                channel_freqs,
+            tile_mapping = delayed(create_time_interval_tile_mapping)(
+                interval_reader, tile_size, channel_freqs
             )
-
-            tiles = client.submit(
-                reorder_time_interval, interval_reader, tile_mapping
+            tiles = delayed(reorder_time_interval)(
+                interval_reader, tile_mapping
             )
+            paths_written, remaining_tiles = delayed(
+                rechunk_and_export, nout=2
+            )(tiles, outdir, max_vis_per_chunk=max_vis_per_chunk)
+        paths_written_list.append(paths_written)
+        remaining_tiles_list.append(remaining_tiles)
 
-            rechunk_result = client.submit(
-                rechunk_and_export,
-                [tiles],
-                outdir,
-            )
-
-            paths_written, remaining_tiles = unpack_future_sequence(
-                rechunk_result, 2, client
-            )
-
-            paths_written_futures.append(paths_written)
-            remainder_chunks_futures.append(remaining_tiles)
-
-    fut = client.submit(
-        rechunk_and_export, remainder_chunks_futures, outdir, force_export=True
+    remaining_tiles = delayed(concatenate_lists)(remaining_tiles_list)
+    paths_written = delayed(concatenate_lists)(paths_written_list)
+    final_paths_written, __ = delayed(rechunk_and_export, nout=2)(
+        remaining_tiles,
+        outdir,
+        max_vis_per_chunk=max_vis_per_chunk,
+        force_export=True,
     )
-    paths_written, __ = fut.result()
 
-    # for x in paths_written_futures:
-    #     print(x)
-    #     print(x.result())
-    #     print(75 * "=")
-
-    all_paths_written = paths_written + list(
-        itertools.chain.from_iterable(
-            map(Future.result, paths_written_futures)
-        )
+    paths_written = delayed(concatenate_lists)(
+        [paths_written, final_paths_written]
     )
-    return all_paths_written
+    return client.compute(paths_written).result()
 
 
 def create_time_interval_tile_mapping(
@@ -175,26 +154,30 @@ def reorder_time_interval(
 
 
 def rechunk_and_export(
-    tile_lists: list[list[Tile]], outdir: Path, *, force_export: bool = False
+    tiles: list[Tile],
+    outdir: Path,
+    *,
+    max_vis_per_chunk: int = 5_000_000,
+    force_export: bool = False,
 ) -> tuple[list[Path], list[Tile]]:
     """
     TODO
     """
     mapping: dict[TileCoords, list[Tile]] = defaultdict(list)
 
-    for tiles in tile_lists:
-        for tile in tiles:
-            mapping[tile.coords].append(tile)
+    for tile in tiles:
+        mapping[tile.coords].append(tile)
 
     paths_written: list[Path] = []
     remainder_tiles: list[Tile] = []
 
-    for coords, tiles in mapping.items():
+    for coords, tile_group in mapping.items():
         u, v, w = coords
         paths, extra_tiles = rechunk_tiles(
-            tiles,
+            tile_group,
             outdir,
             basename=f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}",
+            max_vis_per_chunk=max_vis_per_chunk,
             force_export=force_export,
         )
 
@@ -202,6 +185,10 @@ def rechunk_and_export(
         paths_written.extend(paths)
 
     return paths_written, remainder_tiles
+
+
+def concatenate_lists(lists: list[list]) -> list:
+    return list(itertools.chain.from_iterable(lists))
 
 
 def tuple_getitem(items: tuple, index: int):
@@ -242,25 +229,3 @@ def rechunk_tile_chunk_group(
         path.unlink()
 
     return output_paths
-
-
-def _tile_filename(tile_coords: TileCoords, interval_index: int) -> str:
-    u, v, w = tile_coords
-    return (
-        f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}_"
-        f"interval{interval_index:02d}"
-        ".npz"
-    )
-
-
-def _get_num_threads() -> int:
-    """
-    Returns the number of available threads, depending on context:
-    - If called from a dask worker, return the number of threads assigned to
-      the worker.
-    - Otherwise, return the total number of threads available on the system.
-    """
-    try:
-        return get_worker().state.nthreads
-    except ValueError:
-        return os.cpu_count()
