@@ -28,7 +28,6 @@ include:
   - project: "ska-telescope/templates-repository"
     file: "gitlab-ci/includes/release.gitlab-ci.yml"
 
-
 # Override `script` stage, because we want to combine the coverage reports
 # from different dask workers
 python-test:
