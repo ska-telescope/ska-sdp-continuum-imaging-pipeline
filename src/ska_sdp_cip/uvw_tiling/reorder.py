@@ -2,20 +2,16 @@ import itertools
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Optional
 
 import dask
 from dask import delayed
-from dask.distributed import Client, Future, WorkerPlugin
+from dask.delayed import Delayed
+from dask.distributed import Client, WorkerPlugin
 from distributed import Worker
 from numpy.typing import NDArray
 
 from ska_sdp_cip import MeasurementSetReader
-from ska_sdp_cip.uvw_tiling.tile import (
-    Tile,
-    rechunk_tiles,
-    rechunk_tiles_on_disk,
-)
+from ska_sdp_cip.uvw_tiling.tile import Tile, rechunk_tiles
 from ska_sdp_cip.uvw_tiling.tile_mapping import (
     TileCoords,
     TileMapping,
@@ -44,7 +40,6 @@ def reorder_by_uvw_tile(
     outdir: Path,
     client: Client,
     *,
-    num_time_intervals: Optional[int] = None,
     max_vis_per_chunk: int = 5_000_000,
 ) -> list[Path]:
     """
@@ -64,59 +59,133 @@ def reorder_by_uvw_tile(
             of wavelengths, as a tuple (u_size, v_size, w_size).
         outdir: The output directory where the reordered tiles will be written.
         client: The dask client used to manage parallel tasks.
-        num_time_intervals: The number of time intervals to partition the data
-            into. If None, pick a multiple of the number of available workers.
         max_vis_per_chunk: The maximum number of visibilities per tile chunk in
             the final output files.
 
     Returns:
         list[Path]: A list of Paths to the tile chunks that were written.
     """
+    client.register_plugin(AddProcessPool())
+    delayed_obj = recursive_reorder(
+        ms_reader,
+        tile_size,
+        outdir,
+        max_vis_per_chunk=max_vis_per_chunk,
+    )
+    return client.compute(delayed_obj).result()
 
-    if num_time_intervals is None:
-        total_threads = sum(
-            winfo["nthreads"]
-            for winfo in client.scheduler_info()["workers"].values()
-        )
-        num_time_intervals = max(2 * total_threads, 2)
 
+def recursive_reorder(
+    ms_reader: MeasurementSetReader,
+    tile_size: TileCoords,
+    outdir: Path,
+    *,
+    max_rows_per_interval: int = 131_072,
+    max_vis_per_chunk: int = 5_000_000,
+) -> Delayed:
+    """
+    Returns a Delayed object wrapping the list of tile chunk paths written.
+    """
     # Must make paths absolute before sending them to other workers
     outdir = outdir.resolve()
     channel_freqs = ms_reader.channel_frequencies()
 
-    paths_written_list = []
-    remaining_tiles_list = []
-
-    client.register_plugin(AddProcessPool())
-
-    # Reorder time intervals in parallel
-    for interval_reader in ms_reader.partition(num_time_intervals, 1):
-        with dask.annotate(executor="processes"):
-            tile_mapping = delayed(create_time_interval_tile_mapping)(
-                interval_reader, tile_size, channel_freqs
-            )
-            tiles = delayed(reorder_time_interval)(
-                interval_reader, tile_mapping
-            )
-            paths_written, remaining_tiles = delayed(
-                rechunk_and_export, nout=2
-            )(tiles, outdir, max_vis_per_chunk=max_vis_per_chunk)
-        paths_written_list.append(paths_written)
-        remaining_tiles_list.append(remaining_tiles)
-
-    remaining_tiles = delayed(concatenate_lists)(remaining_tiles_list)
-    paths_written = delayed(concatenate_lists)(paths_written_list)
-    final_paths_written, __ = delayed(rechunk_and_export, nout=2)(
-        remaining_tiles,
+    paths_written, __ = _do_recursive_reorder(
+        ms_reader,
+        tile_size,
+        channel_freqs,
         outdir,
+        max_rows_per_interval=max_rows_per_interval,
         max_vis_per_chunk=max_vis_per_chunk,
         force_export=True,
     )
+    return paths_written
 
-    paths_written = delayed(concatenate_lists)(
-        [paths_written, final_paths_written]
+
+def _do_recursive_reorder(
+    ms_reader: MeasurementSetReader,
+    tile_size: TileCoords,
+    channel_freqs: NDArray,
+    outdir: Path,
+    *,
+    max_rows_per_interval: int = 131_072,
+    max_vis_per_chunk: int = 5_000_000,
+    force_export: bool = False,
+) -> tuple[Delayed, Delayed]:
+    """
+    Returns a tuple of Delayed containing:
+    - The list of tile chunk paths written
+    - The list of tiles that were too small to be exported
+    """
+    if ms_reader.num_data_rows <= max_rows_per_interval:
+        # NOTE: force_export must be passed, in case the top-level input
+        # measurement set has a sufficiently small number of input rows to be
+        # processed without recursive splitting.
+        return _do_reorder(
+            ms_reader,
+            tile_size,
+            channel_freqs,
+            outdir,
+            max_vis_per_chunk=max_vis_per_chunk,
+            force_export=force_export,
+        )
+
+    list_of_path_lists = []
+    list_of_tile_lists = []
+
+    for interval_reader in ms_reader.partition(8, 1):
+        interval_paths, remaining_tiles = _do_recursive_reorder(
+            interval_reader,
+            tile_size,
+            channel_freqs,
+            outdir,
+            max_rows_per_interval=max_rows_per_interval,
+            max_vis_per_chunk=max_vis_per_chunk,
+            force_export=False,
+        )
+        list_of_path_lists.append(interval_paths)
+        list_of_tile_lists.append(remaining_tiles)
+
+    paths_written = delayed(concatenate_lists)(list_of_path_lists)
+    remaining_tiles = delayed(concatenate_lists)(list_of_tile_lists)
+
+    extra_paths_written, remaining_tiles = delayed(rechunk_and_export, nout=2)(
+        remaining_tiles,
+        outdir,
+        max_vis_per_chunk=max_vis_per_chunk,
+        force_export=force_export,
     )
-    return client.compute(paths_written).result()
+    paths_written = delayed(concatenate_lists)(
+        [paths_written, extra_paths_written]
+    )
+    return paths_written, remaining_tiles
+
+
+def _do_reorder(
+    ms_reader: MeasurementSetReader,
+    tile_size: TileCoords,
+    channel_freqs: NDArray,
+    outdir: Path,
+    *,
+    max_vis_per_chunk: int = 5_000_000,
+    force_export: bool = False,
+) -> tuple[Delayed, Delayed]:
+    # Tile mapping computation is compute bound, so we parallelize over
+    # processes
+    with dask.annotate(executor="processes"):
+        tile_mapping = delayed(create_time_interval_tile_mapping)(
+            ms_reader,
+            tile_size,
+            channel_freqs,
+        )
+    tiles = delayed(reorder_time_interval)(ms_reader, tile_mapping)
+    paths_written, remaining_tiles = delayed(rechunk_and_export, nout=2)(
+        tiles,
+        outdir,
+        max_vis_per_chunk=max_vis_per_chunk,
+        force_export=force_export,
+    )
+    return paths_written, remaining_tiles
 
 
 def create_time_interval_tile_mapping(
@@ -146,6 +215,7 @@ def reorder_time_interval(
     stokes_i_vis = 0.5 * (vis[..., 0] + vis[..., 3])
 
     return [
+        # pylint:disable=protected-access
         Tile._from_jagged_visibilities_slice(
             stokes_i_vis, uvw, coords, row_slices
         )
@@ -161,7 +231,13 @@ def rechunk_and_export(
     force_export: bool = False,
 ) -> tuple[list[Path], list[Tile]]:
     """
-    TODO
+    Rechunk list of Tiles with the same coordinates so that none contain more
+    than `max_vis_per_chunk` visibility samples. Full tile chunks are written
+    to `outdir`, the remaining chunks are returned.
+
+    Return a tuple with two elements:
+    - The list of tile chunk paths written
+    - The list of tiles that were too small to be exported
     """
     mapping: dict[TileCoords, list[Tile]] = defaultdict(list)
 
@@ -188,44 +264,7 @@ def rechunk_and_export(
 
 
 def concatenate_lists(lists: list[list]) -> list:
+    """
+    Self-explanatory.
+    """
     return list(itertools.chain.from_iterable(lists))
-
-
-def tuple_getitem(items: tuple, index: int):
-    return items[index]
-
-
-def unpack_future_sequence(
-    fut: Future, num_items: int, client: Client
-) -> list[Future]:
-    return [
-        client.submit(tuple_getitem, fut, index) for index in range(num_items)
-    ]
-
-
-def rechunk_tile_chunk_group(
-    tile_coords: TileCoords,
-    outdir: Path,
-    *,
-    max_vis_per_chunk: int = 5_000_000,
-) -> list[Path]:
-    """
-    Rechunk the files associated to given tile coords that are present inside
-    `outdir`. Returns the list of written file paths.
-    """
-    u, v, w = tile_coords
-    pattern = f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}_interval*.npz"
-    input_paths = list(outdir.glob(pattern))
-    output_basename = f"tile_iu{u:+03d}_iv{v:+03d}_iw{w:+03d}"
-
-    output_paths = rechunk_tiles_on_disk(
-        input_paths,
-        outdir,
-        output_basename,
-        max_vis_per_chunk=max_vis_per_chunk,
-    )
-
-    for path in input_paths:
-        path.unlink()
-
-    return output_paths

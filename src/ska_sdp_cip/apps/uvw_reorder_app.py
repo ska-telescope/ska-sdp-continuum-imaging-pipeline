@@ -53,16 +53,6 @@ def get_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "-n",
-        "--num-time-intervals",
-        type=int,
-        default=None,
-        help=(
-            "Split the input data into this many time chunks between workers. "
-            "If None, a choice is made automatically."
-        ),
-    )
-    parser.add_argument(
         "-m",
         "--max-vis-per-chunk",
         type=int,
@@ -93,7 +83,6 @@ def run_program(cli_args: list[str]) -> None:
             tuple(args.tile_size),
             outdir,
             client,
-            num_time_intervals=args.num_time_intervals,
             max_vis_per_chunk=args.max_vis_per_chunk,
         )
 

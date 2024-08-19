@@ -15,7 +15,6 @@ def test_reorder_msv2_by_uvw_tile(
     Self-explanatory.
     """
     tile_size = (3000.0, 3000.0, 6000.0)
-    num_time_intervals = 4
     max_vis_per_chunk = 10_000
 
     with TemporaryDirectory() as tempdir_name:
@@ -25,7 +24,6 @@ def test_reorder_msv2_by_uvw_tile(
             tile_size,
             outdir,
             dask_client,
-            num_time_intervals=num_time_intervals,
             max_vis_per_chunk=max_vis_per_chunk,
         )
 
@@ -36,7 +34,6 @@ def reorder_msv2_by_uvw_tile_and_check_result(
     outdir: Path,
     client: Client,
     *,
-    num_time_intervals: int,
     max_vis_per_chunk: int,
 ):
     """
@@ -48,7 +45,6 @@ def reorder_msv2_by_uvw_tile_and_check_result(
         tile_size,
         outdir,
         client,
-        num_time_intervals=num_time_intervals,
         max_vis_per_chunk=max_vis_per_chunk,
     )
 

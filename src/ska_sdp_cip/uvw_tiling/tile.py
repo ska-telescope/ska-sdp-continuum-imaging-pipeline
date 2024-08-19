@@ -212,60 +212,6 @@ def split_tile(tile: Tile, max_vis_per_chunk: int) -> list[Tile]:
     return result
 
 
-def rechunk_tiles_on_disk(
-    tile_paths: Iterable[Path],
-    outdir: Path,
-    basename: str,
-    *,
-    max_vis_per_chunk: int = 5_000_000,
-) -> list[Path]:
-    """
-    Given an iterable of tile chunk file paths with the same tile coordinates,
-    write the associated data as a new set of files, each containing a number
-    of visibilities as large as possible but less than `max_vis_per_chunk`.
-
-    Output files are named `{basename}_{chunk_index}.npz`.
-    Returns the list of output file Paths, in the order they were written.
-    """
-    queue: list[Tile] = []
-    result: list[Path] = []
-    num_written = 0
-
-    def _write_tile(tile: Tile) -> None:
-        nonlocal num_written
-        filepath = outdir / f"{basename}_chunk{num_written:03d}.npz"
-        tile.save_npz(filepath)
-        result.append(filepath)
-        num_written += 1
-
-    for paths in tile_paths:
-        tile = Tile.load_npz(paths)
-        queue.append(tile)
-        nvis_in_queue = sum(t.num_visibilities for t in queue)
-
-        if len(queue) > 1 and nvis_in_queue > max_vis_per_chunk:
-            queue = [concatenate_tiles(queue)]
-
-        if len(queue) == 1 and nvis_in_queue > max_vis_per_chunk:
-            # split tile in N chunks
-            chunks = split_tile(queue[0], max_vis_per_chunk)
-
-            # export full chunks
-            for chunk in chunks[:-1]:
-                _write_tile(chunk)
-
-            # place remainder in queue
-            queue = [chunks[-1]]
-
-    if len(queue) > 1:
-        queue = [concatenate_tiles(queue)]
-
-    for tile in queue:
-        _write_tile(tile)
-
-    return result
-
-
 def rechunk_tiles(
     tiles: Iterable[Tile],
     outdir: Path,
