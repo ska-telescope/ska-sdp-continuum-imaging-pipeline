@@ -1,4 +1,5 @@
 import itertools
+import math
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -40,6 +41,7 @@ def reorder_by_uvw_tile(
     outdir: Path,
     client: Client,
     *,
+    max_interval_bytesize: int = 512_000_000,
     max_vis_per_chunk: int = 5_000_000,
 ) -> list[Path]:
     """
@@ -70,6 +72,7 @@ def reorder_by_uvw_tile(
         ms_reader,
         tile_size,
         outdir,
+        max_interval_bytesize=max_interval_bytesize,
         max_vis_per_chunk=max_vis_per_chunk,
     )
     return client.compute(delayed_obj).result()
@@ -80,7 +83,7 @@ def reordering_task_graph(
     tile_size: TileCoords,
     outdir: Path,
     *,
-    max_rows_per_interval: int = 131_072,
+    max_interval_bytesize: int = 512_000_000,
     max_vis_per_chunk: int = 5_000_000,
 ) -> Delayed:
     """
@@ -104,7 +107,7 @@ def reordering_task_graph(
         tile_size,
         channel_freqs,
         outdir,
-        max_rows_per_interval=max_rows_per_interval,
+        max_interval_bytesize=max_interval_bytesize,
         max_vis_per_chunk=max_vis_per_chunk,
         force_export=True,
     )
@@ -117,7 +120,7 @@ def _reordering_task_graph_recursive(
     channel_freqs: NDArray,
     outdir: Path,
     *,
-    max_rows_per_interval: int = 131_072,
+    max_interval_bytesize: int = 512_000_000,
     max_vis_per_chunk: int = 5_000_000,
     force_export: bool = False,
 ) -> tuple[Delayed, Delayed]:
@@ -134,7 +137,7 @@ def _reordering_task_graph_recursive(
     re-chunking, regardless of their size; in this case, the second return
     argument is an empty list.
     """
-    if ms_reader.num_data_rows <= max_rows_per_interval:
+    if ms_reader.visibilities_bytesize <= max_interval_bytesize:
         # NOTE: force_export must be passed, in case the top-level input
         # measurement set has a sufficiently small number of input rows to be
         # processed without recursive splitting.
@@ -150,13 +153,17 @@ def _reordering_task_graph_recursive(
     list_of_path_lists = []
     list_of_tile_lists = []
 
-    for interval_reader in ms_reader.partition(8, 1):
+    split_factor = min(
+        8, math.ceil(ms_reader.visibilities_bytesize / max_interval_bytesize)
+    )
+
+    for interval_reader in ms_reader.partition(split_factor, 1):
         interval_paths, remaining_tiles = _reordering_task_graph_recursive(
             interval_reader,
             tile_size,
             channel_freqs,
             outdir,
-            max_rows_per_interval=max_rows_per_interval,
+            max_interval_bytesize=max_interval_bytesize,
             max_vis_per_chunk=max_vis_per_chunk,
             force_export=False,
         )

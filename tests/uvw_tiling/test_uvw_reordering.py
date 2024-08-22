@@ -15,7 +15,9 @@ def test_reorder_msv2_by_uvw_tile(
     Self-explanatory.
     """
     tile_size = (3000.0, 3000.0, 6000.0)
-    max_vis_per_chunk = 10_000
+    max_vis_per_chunk = 100_000
+    # Use tiny intervals so we can actually exert the distribution
+    max_interval_bytesize = 1_000_000
 
     with TemporaryDirectory() as tempdir_name:
         outdir = Path(tempdir_name)
@@ -24,6 +26,7 @@ def test_reorder_msv2_by_uvw_tile(
             tile_size,
             outdir,
             dask_client,
+            max_interval_bytesize=max_interval_bytesize,
             max_vis_per_chunk=max_vis_per_chunk,
         )
 
@@ -34,6 +37,7 @@ def reorder_msv2_by_uvw_tile_and_check_result(
     outdir: Path,
     client: Client,
     *,
+    max_interval_bytesize: int,
     max_vis_per_chunk: int,
 ):
     """
@@ -45,6 +49,7 @@ def reorder_msv2_by_uvw_tile_and_check_result(
         tile_size,
         outdir,
         client,
+        max_interval_bytesize=max_interval_bytesize,
         max_vis_per_chunk=max_vis_per_chunk,
     )
 
