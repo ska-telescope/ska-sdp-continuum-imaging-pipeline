@@ -2,6 +2,7 @@ import itertools
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Iterable
 
 import dask
 from dask import delayed
@@ -33,7 +34,6 @@ class AddProcessPool(WorkerPlugin):
         worker.executors["processes"] = executor
 
 
-# pylint:disable=too-many-locals
 def reorder_by_uvw_tile(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
@@ -66,7 +66,7 @@ def reorder_by_uvw_tile(
         list[Path]: A list of Paths to the tile chunks that were written.
     """
     client.register_plugin(AddProcessPool())
-    delayed_obj = recursive_reorder(
+    delayed_obj = reordering_task_graph(
         ms_reader,
         tile_size,
         outdir,
@@ -75,7 +75,7 @@ def reorder_by_uvw_tile(
     return client.compute(delayed_obj).result()
 
 
-def recursive_reorder(
+def reordering_task_graph(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
     outdir: Path,
@@ -84,13 +84,22 @@ def recursive_reorder(
     max_vis_per_chunk: int = 5_000_000,
 ) -> Delayed:
     """
+    Compute the task graph for UVW reordering. The idea is to:
+    1. Reorder small time intervals in parallel and in memory, immediately
+       export the tile chunks that are large enough.
+    2. The remaining small tile chunks are iteratively aggregated, re-chunked
+       and exported using a tree-based scheme.
+
     Returns a Delayed object wrapping the list of tile chunk paths written.
     """
     # Must make paths absolute before sending them to other workers
     outdir = outdir.resolve()
     channel_freqs = ms_reader.channel_frequencies()
 
-    paths_written, __ = _do_recursive_reorder(
+    # The second return value can be safely discarded here, because the
+    # top-level re-chunking task does not return any tiles that are too small
+    # to be exported; instead, it is forced to write out all tiles.
+    paths_written, __ = _reordering_task_graph_recursive(
         ms_reader,
         tile_size,
         channel_freqs,
@@ -102,7 +111,7 @@ def recursive_reorder(
     return paths_written
 
 
-def _do_recursive_reorder(
+def _reordering_task_graph_recursive(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
     channel_freqs: NDArray,
@@ -113,15 +122,23 @@ def _do_recursive_reorder(
     force_export: bool = False,
 ) -> tuple[Delayed, Delayed]:
     """
+    Recursively compute the full reordering task graph. The idea is to reorder
+    N time intervals of the input, then aggregate and re-chunk any remaining
+    small tiles on a single node.
+
     Returns a tuple of Delayed containing:
     - The list of tile chunk paths written
     - The list of tiles that were too small to be exported
+
+    If `force_export` is True, all tiles are exported after the aggregation +
+    re-chunking, regardless of their size; in this case, the second return
+    argument is an empty list.
     """
     if ms_reader.num_data_rows <= max_rows_per_interval:
         # NOTE: force_export must be passed, in case the top-level input
         # measurement set has a sufficiently small number of input rows to be
         # processed without recursive splitting.
-        return _do_reorder(
+        return _in_memory_reordering_task_graph(
             ms_reader,
             tile_size,
             channel_freqs,
@@ -134,7 +151,7 @@ def _do_recursive_reorder(
     list_of_tile_lists = []
 
     for interval_reader in ms_reader.partition(8, 1):
-        interval_paths, remaining_tiles = _do_recursive_reorder(
+        interval_paths, remaining_tiles = _reordering_task_graph_recursive(
             interval_reader,
             tile_size,
             channel_freqs,
@@ -146,8 +163,8 @@ def _do_recursive_reorder(
         list_of_path_lists.append(interval_paths)
         list_of_tile_lists.append(remaining_tiles)
 
-    paths_written = delayed(concatenate_lists)(list_of_path_lists)
-    remaining_tiles = delayed(concatenate_lists)(list_of_tile_lists)
+    paths_written = delayed(concatenate_iterables)(list_of_path_lists)
+    remaining_tiles = delayed(concatenate_iterables)(list_of_tile_lists)
 
     extra_paths_written, remaining_tiles = delayed(rechunk_and_export, nout=2)(
         remaining_tiles,
@@ -155,13 +172,13 @@ def _do_recursive_reorder(
         max_vis_per_chunk=max_vis_per_chunk,
         force_export=force_export,
     )
-    paths_written = delayed(concatenate_lists)(
+    paths_written = delayed(concatenate_iterables)(
         [paths_written, extra_paths_written]
     )
     return paths_written, remaining_tiles
 
 
-def _do_reorder(
+def _in_memory_reordering_task_graph(
     ms_reader: MeasurementSetReader,
     tile_size: TileCoords,
     channel_freqs: NDArray,
@@ -170,6 +187,10 @@ def _do_reorder(
     max_vis_per_chunk: int = 5_000_000,
     force_export: bool = False,
 ) -> tuple[Delayed, Delayed]:
+    """
+    Task sequence to reorder a MeasurementSet (or chunk thereof) that fully
+    fits into worker memory.
+    """
     # Tile mapping computation is compute bound, so we parallelize over
     # processes
     with dask.annotate(executor="processes"):
@@ -207,7 +228,7 @@ def reorder_time_interval(
     Perform the actual reordering of the visibilities inside a time interval,
     given a pre-computed UVW time mapping for it.
 
-    Returns the list of TileCoords present in that interval.
+    Returns the visibilities binned per tile, as a list of Tile objects.
     """
 
     uvw = ms_reader.uvw()
@@ -235,9 +256,13 @@ def rechunk_and_export(
     than `max_vis_per_chunk` visibility samples. Full tile chunks are written
     to `outdir`, the remaining chunks are returned.
 
-    Return a tuple with two elements:
+    Returns a tuple containing:
     - The list of tile chunk paths written
     - The list of tiles that were too small to be exported
+
+    If `force_export` is True, all tiles are exported after re-chunking,
+    regardless of their size; in this case, the second return argument is an
+    empty list.
     """
     mapping: dict[TileCoords, list[Tile]] = defaultdict(list)
 
@@ -263,8 +288,8 @@ def rechunk_and_export(
     return paths_written, remainder_tiles
 
 
-def concatenate_lists(lists: list[list]) -> list:
+def concatenate_iterables(iterables: Iterable[Iterable]) -> list:
     """
-    Self-explanatory.
+    Concatenate iterables into a single list.
     """
-    return list(itertools.chain.from_iterable(lists))
+    return list(itertools.chain.from_iterable(iterables))
