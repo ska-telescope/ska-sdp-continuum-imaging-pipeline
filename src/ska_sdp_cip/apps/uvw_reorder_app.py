@@ -53,6 +53,16 @@ def get_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-i",
+        "--max-interval-bytesize",
+        type=int,
+        default=512_000_000,
+        help=(
+            "Split the reordering problem into time intervals containing no "
+            "more than this amount of visibilities, in bytes."
+        ),
+    )
+    parser.add_argument(
         "-m",
         "--max-vis-per-chunk",
         type=int,
@@ -83,6 +93,7 @@ def run_program(cli_args: list[str]) -> None:
             tuple(args.tile_size),
             outdir,
             client,
+            max_interval_bytesize=args.max_interval_bytesize,
             max_vis_per_chunk=args.max_vis_per_chunk,
         )
 
