@@ -199,7 +199,9 @@ def _in_memory_reordering_task_graph(
             tile_size,
             channel_freqs,
         )
-    tiles = delayed(reorder_time_interval)(ms_reader, tile_mapping)
+    uvw, vis = delayed(load_visibilities_and_uvw, nout=2)(ms_reader)
+    stokes_i_vis = delayed(convert_visibilities_to_stokes_i)(vis)
+    tiles = delayed(bin_visibilities_by_tile)(stokes_i_vis, uvw, tile_mapping)
     paths_written, remaining_tiles = delayed(rechunk_and_export, nout=2)(
         tiles,
         outdir,
@@ -221,20 +223,28 @@ def create_time_interval_tile_mapping(
     return create_uvw_tile_mapping(uvw, tile_size, channel_freqs)
 
 
-def reorder_time_interval(
-    ms_reader: MeasurementSetReader, tile_mapping: TileMapping
+def load_visibilities_and_uvw(
+    ms_reader: MeasurementSetReader,
+) -> tuple[NDArray, NDArray]:
+    """
+    Self-explanatory.
+    """
+    return ms_reader.uvw(), ms_reader.visibilities()
+
+
+def convert_visibilities_to_stokes_i(vis: NDArray) -> NDArray:
+    """
+    Self-explanatory.
+    """
+    return 0.5 * (vis[..., 0] + vis[..., 3])
+
+
+def bin_visibilities_by_tile(
+    stokes_i_vis: NDArray, uvw: NDArray, tile_mapping: TileMapping
 ) -> list[Tile]:
     """
-    Perform the actual reordering of the visibilities inside a time interval,
-    given a pre-computed UVW time mapping for it.
-
-    Returns the visibilities binned per tile, as a list of Tile objects.
+    Self-explanatory.
     """
-
-    uvw = ms_reader.uvw()
-    vis = ms_reader.visibilities()
-    stokes_i_vis = 0.5 * (vis[..., 0] + vis[..., 3])
-
     return [
         # pylint:disable=protected-access
         Tile._from_jagged_visibilities_slice(
