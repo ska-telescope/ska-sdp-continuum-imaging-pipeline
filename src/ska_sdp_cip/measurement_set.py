@@ -126,6 +126,13 @@ class MeasurementSetMetadata:
         # NOTE: works only because we're assuming a single spectral window
         return get_column_data(self.path, "SPECTRAL_WINDOW", "CHAN_FREQ").size
 
+    @property
+    def num_polarisations(self) -> int:
+        """
+        Total number of polarisations.
+        """
+        return 4
+
 
 class MeasurementSetReader:
     """
@@ -213,6 +220,26 @@ class MeasurementSetReader:
         Total number of frequency channels within reading bounds.
         """
         return self.channel_end - self.channel_start
+
+    @property
+    def num_polarisations(self) -> int:
+        """
+        Total number of polarisations.
+        """
+        return self._metadata.num_polarisations
+
+    @property
+    def visibilities_bytesize(self) -> int:
+        """
+        Size of the visibilities that lie within reading bounds, in bytes.
+        """
+        bytes_per_sample = 8  # single-precision complex
+        return (
+            bytes_per_sample
+            * self.num_data_rows
+            * self.num_channels
+            * self.num_polarisations
+        )
 
     def set_row_bounds(self, row_start: int, row_end: int) -> None:
         """

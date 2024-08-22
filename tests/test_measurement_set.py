@@ -29,6 +29,13 @@ def test_channel_frequencies(ms_reader: MeasurementSetReader):
     )
 
 
+def test_visibilities_bytesize(ms_reader: MeasurementSetReader):
+    """
+    Test .visibilities_bytesize property.
+    """
+    assert ms_reader.visibilities_bytesize == (74214 * 4 * 4 * 8)
+
+
 def test_reading_uvw_and_visibilities(ms_reader: MeasurementSetReader):
     """
     Check that reading uvw and visibilities does not raise any error.
