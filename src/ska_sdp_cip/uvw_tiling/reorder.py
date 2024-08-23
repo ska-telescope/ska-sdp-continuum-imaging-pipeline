@@ -206,9 +206,15 @@ def _in_memory_reordering_task_graph(
             tile_size,
             channel_freqs,
         )
+
     uvw, vis = delayed(load_visibilities_and_uvw, nout=2)(ms_reader)
     stokes_i_vis = delayed(convert_visibilities_to_stokes_i)(vis)
-    tiles = delayed(bin_visibilities_by_tile)(stokes_i_vis, uvw, tile_mapping)
+
+    with dask.annotate(executor="processes"):
+        tiles = delayed(bin_visibilities_by_tile)(
+            stokes_i_vis, uvw, tile_mapping
+        )
+
     paths_written, remaining_tiles = delayed(rechunk_and_export, nout=2)(
         tiles,
         outdir,
